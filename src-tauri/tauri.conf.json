@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Rumbo",
+  "version": "0.1.0",
+  "identifier": "com.rumbo.app",
+  "build": {
+    "beforeDevCommand": "npm --prefix ../frontend run dev -- --port 5173 --strictPort",
+    "beforeBuildCommand": "npm --prefix ../frontend run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../frontend/dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "Rumbo",
+        "label": "main",
+        "width": 1100,
+        "height": 720,
+        "resizable": true,
+        "fullscreen": false
+      },
+      {
+        "title": "Quick Add",
+        "label": "quick-add",
+        "width": 760,
+        "height": 280,
+        "resizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "transparent": true,
+        "shadow": false,
+        "skipTaskbar": true,
+        "visible": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": false
+  },
+  "plugins": {}
+}
+

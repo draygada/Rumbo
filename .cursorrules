@@ -1,0 +1,21 @@
+You are helping build Rumbo — a Tauri 2 + React + TypeScript desktop app 
+for college students with attentional learning differences.
+
+Always read RUMBO_SPEC.md before suggesting architecture or new files.
+Always use the types defined in types.ts — never redefine interfaces that already exist.
+
+The scheduling algorithm is deterministic TypeScript — never suggest calling 
+an AI API for scheduling, classification, or profile updates.
+
+The only AI calls in the entire app are:
+1. parse-pdf edge function (premium, PDF upload)
+2. parse-description edge function (premium, task description)
+
+The app has two windows:
+1. Quick-add modal — always-on-top, triggered by tray icon or hotkey
+2. Main dashboard — standard window, opened from tray menu
+
+Entry point is the system tray icon, not a hotkey. Global hotkey is secondary.
+
+Tech stack: Tauri 2 + Rust core, React 18, TypeScript, Vite, 
+Tailwind CSS, shadcn/ui, Zustand, TanStack Query, Supabase.

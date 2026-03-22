@@ -1,0 +1,21 @@
+# Rust build artifacts
+target/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Environment variables (never commit secrets)
+.env
+.env.local
+frontend/.env
+frontend/.env.local
+
+# OS
+.DS_Store
+
+# Claude Code internals
+.claude/
+
+# Tauri
+src-tauri/gen/schemas/
