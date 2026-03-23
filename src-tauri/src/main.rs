@@ -172,6 +172,21 @@ fn main() {
                 });
             }
 
+            // Hide quick-add whenever it loses OS-level focus.
+            // This preserves click-outside-dismiss even when focus leaves the app.
+            if let Some(quick_add) = app.get_webview_window("quick-add") {
+                let handle = app.handle().clone();
+                quick_add.on_window_event(move |event| {
+                    if let WindowEvent::Focused(false) = event {
+                        if let Some(w) = handle.get_webview_window("quick-add") {
+                            if w.is_visible().unwrap_or(false) {
+                                let _ = w.hide();
+                            }
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .build(tauri::generate_context!())

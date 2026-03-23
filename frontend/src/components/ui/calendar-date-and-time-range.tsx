@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { fromDate, getLocalTimeZone, type DateValue } from "@internationalized/date"
 import { ChevronDownIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -17,19 +18,31 @@ export type DueDateTimeValue = {
 export function CalendarDueDateTime({
   value,
   onChange,
+  onCalendarOpenChange,
 }: {
   value: DueDateTimeValue
   onChange: (next: DueDateTimeValue) => void
+  onCalendarOpenChange?: (open: boolean) => void
 }) {
   const [open, setOpen] = React.useState(false)
+  const selectedDateValue = React.useMemo<DateValue | null>(
+    () => (value.date ? fromDate(value.date, getLocalTimeZone()) : null),
+    [value.date],
+  )
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
-        <Label htmlFor="date" className="px-1 text-sm font-bold text-black/70">
+        <Label htmlFor="date" className="px-1 text-sm !font-bold text-black/70">
           Due date
         </Label>
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+          open={open}
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen)
+            onCalendarOpenChange?.(nextOpen)
+          }}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="outline"
@@ -41,17 +54,19 @@ export function CalendarDueDateTime({
             </Button>
           </PopoverTrigger>
           <PopoverContent
-            className="w-auto max-h-[min(320px,calc(100vh-24px))] overflow-y-auto overflow-x-hidden p-1"
+            className="w-auto max-h-[min(290px,calc(100vh-24px))] overflow-y-auto overflow-x-hidden p-1"
             align="start"
             side="bottom"
             collisionPadding={12}
           >
             <Calendar
-              mode="single"
-              selected={value.date}
-              captionLayout="dropdown"
-              onSelect={(date) => {
-                onChange({ ...value, date: date ?? undefined })
+              compact
+              value={selectedDateValue}
+              onChange={(date) => {
+                onChange({
+                  ...value,
+                  date: date ? date.toDate(getLocalTimeZone()) : undefined,
+                })
                 setOpen(false)
               }}
             />
@@ -60,7 +75,7 @@ export function CalendarDueDateTime({
       </div>
 
       <div className="flex flex-col gap-3">
-        <Label htmlFor="time-due" className="px-1 text-sm font-bold text-black/70">
+        <Label htmlFor="time-due" className="px-1 text-sm !font-bold text-black/70">
           Time
         </Label>
         <Input

@@ -23,6 +23,10 @@ const QUICK_ADD_WIDTH = 760
 const QUICK_ADD_HEIGHT_COMPACT = 280
 /** Tall enough for date popover + estimated select when flipped; fixed-position menus still clip at webview edge. */
 const QUICK_ADD_HEIGHT_EXPANDED = 640
+/** Keep just a thin clickable backdrop around the card. */
+const QUICK_ADD_OUTER_PADDING_PX = 8
+/** Extra room for the portaled calendar popover while it is open. */
+const QUICK_ADD_CALENDAR_OPEN_EXTRA_PX = 250
 
 type EstimatedTimeMode = 'preset' | 'custom'
 
@@ -43,7 +47,8 @@ export function QuickAddModal() {
   })
   const [estimatedMins, setEstimatedMins] = useState<number>(30)
   const [estimatedTimeMode, setEstimatedTimeMode] = useState<EstimatedTimeMode>('preset')
-  const [customMinsDraft, setCustomMinsDraft] = useState('30')
+  const [customHoursDraft, setCustomHoursDraft] = useState('1')
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   const [overrideWorkType, setOverrideWorkType] = useState<WorkType | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
@@ -125,25 +130,59 @@ export function QuickAddModal() {
   const hasTitle = title.trim().length > 0
   const hasTitleRef = useRef(hasTitle)
   hasTitleRef.current = hasTitle
+  const isDatePickerOpenRef = useRef(isDatePickerOpen)
+  isDatePickerOpenRef.current = isDatePickerOpen
 
   /** Tracks which of the two sizes we last applied (skip redundant setSize). */
   const lastWindowModeRef = useRef<'compact' | 'expanded' | null>(null)
+  const lastAppliedHeightRef = useRef<number | null>(null)
   const didInitialWindowSizeRef = useRef(false)
+  /** True while setSize is in flight — suppresses the spurious onFocusChanged that macOS fires after a programmatic resize. */
+  const isResizingRef = useRef(false)
 
   const applyQuickAddWindowSize = useCallback(
-    async (mode: 'compact' | 'expanded', options?: { center?: boolean }) => {
+    async (
+      mode: 'compact' | 'expanded',
+      options?: { center?: boolean; focusTitle?: boolean },
+    ) => {
       const center = options?.center ?? false
-      const targetH = mode === 'compact' ? QUICK_ADD_HEIGHT_COMPACT : QUICK_ADD_HEIGHT_EXPANDED
-      if (!center && lastWindowModeRef.current === mode) return
+      const focusTitle = options?.focusTitle ?? true
+      const fallbackH = mode === 'compact' ? QUICK_ADD_HEIGHT_COMPACT : QUICK_ADD_HEIGHT_EXPANDED
+      const measuredCardH = surfaceRef.current
+        ? Math.ceil(surfaceRef.current.getBoundingClientRect().height)
+        : null
+      const baseH = measuredCardH
+        ? Math.max(
+            mode === 'compact' ? 210 : 420,
+            measuredCardH + QUICK_ADD_OUTER_PADDING_PX * 2,
+          )
+        : fallbackH
+      const targetH =
+        baseH +
+        (mode === 'expanded' && isDatePickerOpenRef.current
+          ? QUICK_ADD_CALENDAR_OPEN_EXTRA_PX
+          : 0)
+      if (
+        !center &&
+        lastWindowModeRef.current === mode &&
+        lastAppliedHeightRef.current === targetH
+      ) {
+        return
+      }
       lastWindowModeRef.current = mode
+      lastAppliedHeightRef.current = targetH
+      isResizingRef.current = true
       try {
         const win = getCurrentWindow()
         // Single jump to final size — no stepped animation.
         await win.setSize(new LogicalSize(QUICK_ADD_WIDTH, targetH))
         if (center) await win.center()
-        window.setTimeout(() => titleRef.current?.focus(), 0)
+        if (focusTitle) window.setTimeout(() => titleRef.current?.focus(), 0)
       } catch {
         // ignore (permissions/runtime)
+      } finally {
+        // Give macOS a moment to fire (and discard) any focus event caused by setSize.
+        window.setTimeout(() => { isResizingRef.current = false }, 150)
       }
     },
     [],
@@ -161,10 +200,14 @@ export function QuickAddModal() {
         unlisten = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
           if (cancelled) return
           if (focused) {
-            void applyQuickAddWindowSizeRef.current(
-              hasTitleRef.current ? 'expanded' : 'compact',
-              { center: true },
-            )
+            // Skip if we're already mid-resize — macOS fires a spurious focus
+            // event after every programmatic setSize, which would cause a second resize.
+            if (!isResizingRef.current) {
+              void applyQuickAddWindowSizeRef.current(
+                hasTitleRef.current ? 'expanded' : 'compact',
+                { center: true },
+              )
+            }
             return
           }
           void hideQuickAddRef.current()
@@ -205,7 +248,7 @@ export function QuickAddModal() {
   useEffect(() => {
     // Ensure the transparent window really looks like a rounded modal:
     // - no page background showing through
-    // - no scrolling ever
+    // - no scrolling ever1
     document.documentElement.style.overflow = 'hidden'
     document.body.style.overflow = 'hidden'
     document.body.style.background = 'transparent'
@@ -224,18 +267,41 @@ export function QuickAddModal() {
     void applyQuickAddWindowSize(hasTitle ? 'expanded' : 'compact', { center })
   }, [hasTitle, applyQuickAddWindowSize])
 
-  const customMinsParsed = parseInt(customMinsDraft, 10)
-  const customMinsOk =
+  useEffect(() => {
+    void applyQuickAddWindowSize(hasTitleRef.current ? 'expanded' : 'compact', {
+      focusTitle: false,
+    })
+  }, [isDatePickerOpen, applyQuickAddWindowSize])
+
+  useEffect(() => {
+    const el = surfaceRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let raf = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        void applyQuickAddWindowSizeRef.current(hasTitleRef.current ? 'expanded' : 'compact')
+      })
+    })
+    observer.observe(el)
+    return () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
+  }, [])
+
+  const customHoursParsed = parseInt(customHoursDraft, 10)
+  const customHoursOk =
     estimatedTimeMode !== 'custom' ||
-    (customMinsDraft.trim() !== '' &&
-      Number.isFinite(customMinsParsed) &&
-      customMinsParsed > 0)
+    (customHoursDraft.trim() !== '' &&
+      Number.isFinite(customHoursParsed) &&
+      customHoursParsed > 0)
 
   const canSubmit =
     !!session?.user?.id &&
     hasTitle &&
     !!dueDateTime.date &&
-    customMinsOk &&
+    customHoursOk &&
     !submitting
 
   const estimatedSelectValue =
@@ -244,7 +310,7 @@ export function QuickAddModal() {
   const onEstimatedSelectChange = (v: string) => {
     if (v === 'other') {
       setEstimatedTimeMode('custom')
-      setCustomMinsDraft(String(estimatedMins))
+      setCustomHoursDraft(String(Math.max(1, Math.ceil(estimatedMins / 60))))
       return
     }
     setEstimatedTimeMode('preset')
@@ -287,7 +353,7 @@ export function QuickAddModal() {
         })(),
         estimated_mins:
           estimatedTimeMode === 'custom'
-            ? Math.min(Math.max(1, customMinsParsed), 10080)
+            ? Math.min(Math.max(1, customHoursParsed * 60), 10080)
             : estimatedMins,
         actual_mins: null,
 
@@ -327,7 +393,7 @@ export function QuickAddModal() {
       setDueDateTime({ date: undefined, time: '23:59' })
       setEstimatedMins(30)
       setEstimatedTimeMode('preset')
-      setCustomMinsDraft('30')
+      setCustomHoursDraft('1')
       setOverrideWorkType(null)
     } catch (e) {
       setError((e as Error).message ?? 'Failed to add task.')
@@ -339,29 +405,24 @@ export function QuickAddModal() {
   return (
     <div
       data-rumbo-quick-add-root
-      className="w-full h-full min-h-0 bg-transparent overflow-visible px-5 py-4 outline-none pointer-events-none"
+      className="w-full h-full min-h-0 bg-transparent overflow-visible px-2 py-2 outline-none pointer-events-auto"
       onPointerDownCapture={onRootPointerDownCapture}
     >
       <div
         ref={measureRef}
-        className="relative box-border flex min-h-0 w-full items-center justify-center outline-none pointer-events-none"
+        className="relative box-border flex min-h-0 w-full items-center justify-center outline-none pointer-events-auto"
       >
-        {/* pointer-events-none on the wrappers lets clicks on the transparent padding
-            pass through to the app below. The card re-enables pointer events so it
-            stays fully interactive. onFocusChanged handles dismissal when the user
-            clicks on another app (OS focus change fires → hideQuickAdd). */}
+        {/* Transparent backdrop is intentionally clickable so any click outside the card
+            closes quick-add immediately. The card itself stops propagation and remains interactive. */}
         <div
           ref={surfaceRef}
           className={cn(
             'relative w-full rounded-[42px] bg-white outline-none pointer-events-auto',
-            /* Real border draws evenly on L/R; 1px box-shadow hairline often looks weak on vertical edges at large radius */
             'border border-solid border-neutral-200/90',
-            'shadow-[0_1px_2px_rgba(0,0,0,0.03),0_8px_28px_rgba(0,0,0,0.07),0_28px_56px_rgba(0,0,0,0.05)]',
             'antialiased [transform:translateZ(0)]',
           )}
           onMouseDown={(e) => e.stopPropagation()}
         >
-        {/* overflow-hidden on inner only so box-shadow on parent isn’t clipped */}
         <div className="overflow-hidden rounded-[42px]">
         <div className="p-7 min-w-0">
           <div className="mb-4">
@@ -399,7 +460,7 @@ export function QuickAddModal() {
                 className="min-w-0 h-8 px-3 text-white hover:opacity-95"
                 style={{ backgroundColor: badgeColor(effectiveWorkType) }}
               />
-              <SelectContent>
+              <SelectContent highlightStyle="clear">
                 <SelectItem index={0} value="deep">
                   Deep work
                 </SelectItem>
@@ -420,7 +481,11 @@ export function QuickAddModal() {
           >
             <div className="grid min-w-0 grid-cols-2 gap-4 pt-1">
               <div className="min-w-0">
-                <CalendarDueDateTime value={dueDateTime} onChange={setDueDateTime} />
+                <CalendarDueDateTime
+                  value={dueDateTime}
+                  onChange={setDueDateTime}
+                  onCalendarOpenChange={setIsDatePickerOpen}
+                />
               </div>
 
               <div className="min-w-0">
@@ -438,23 +503,35 @@ export function QuickAddModal() {
                         )}
                       >
                         <input
-                          type="number"
-                          min={1}
-                          max={10080}
+                          type="text"
                           inputMode="numeric"
-                          aria-label="Estimated time in minutes"
-                          placeholder="Minutes"
-                          className="min-h-0 min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                          value={customMinsDraft}
+                          pattern="[0-9]*"
+                          maxLength={3}
+                          aria-label="Estimated time in hours"
+                          placeholder="Hours"
+                          className="min-h-0 min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm outline-none"
+                          value={customHoursDraft}
+                          onKeyDown={(e) => {
+                            const allowControl =
+                              e.key === 'Backspace' ||
+                              e.key === 'Delete' ||
+                              e.key === 'ArrowLeft' ||
+                              e.key === 'ArrowRight' ||
+                              e.key === 'Tab' ||
+                              e.key === 'Home' ||
+                              e.key === 'End'
+                            if (allowControl) return
+                            if (!/^\d$/.test(e.key)) e.preventDefault()
+                          }}
                           onChange={(e) => {
-                            const next = e.target.value
-                            setCustomMinsDraft(next)
-                            if (next.trim() === '') return
-                            const n = parseInt(next, 10)
-                            if (Number.isFinite(n) && n > 0) {
-                              const clamped = Math.min(n, 10080)
-                              setEstimatedMins(clamped)
-                              if (n !== clamped) setCustomMinsDraft(String(clamped))
+                            const digitsOnly = e.target.value.replace(/\D+/g, '')
+                            setCustomHoursDraft(digitsOnly)
+                            if (digitsOnly === '') return
+                            const h = parseInt(digitsOnly, 10)
+                            if (Number.isFinite(h) && h > 0) {
+                              const clampedHours = Math.min(h, 168)
+                              setEstimatedMins(clampedHours * 60)
+                              if (h !== clampedHours) setCustomHoursDraft(String(clampedHours))
                             }
                           }}
                         />
@@ -472,7 +549,7 @@ export function QuickAddModal() {
                         className="w-full min-w-0 h-11 rounded-xl border-0 bg-white px-3 text-sm outline-none ring-1 ring-inset ring-neutral-300/90 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rumbo-primary/35 focus-visible:ring-offset-0"
                       />
                     )}
-                    <SelectContent>
+                    <SelectContent highlightStyle="clear">
                       <SelectItem index={0} value="15">
                         15 minutes
                       </SelectItem>

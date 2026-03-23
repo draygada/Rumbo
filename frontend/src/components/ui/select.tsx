@@ -162,6 +162,7 @@ interface SelectContentContextValue {
   registerItem: (index: number, element: HTMLElement | null) => void;
   activeIndex: number | null;
   checkedIndex?: number;
+  highlightStyle: "sliding" | "clear";
 }
 
 const SelectContentContext = createContext<SelectContentContextValue | null>(null);
@@ -315,10 +316,15 @@ SelectTrigger.displayName = "SelectTrigger";
 
 // ─── SelectContent ───────────────────────────────────────────────────────────
 
-interface SelectContentProps { className?: string; children: ReactNode; }
+interface SelectContentProps {
+  className?: string;
+  children: ReactNode;
+  /** "clear" disables the animated sliding blob and uses explicit item highlight backgrounds. */
+  highlightStyle?: "sliding" | "clear";
+}
 
 const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
-  ({ className, children }, ref) => {
+  ({ className, children, highlightStyle = "sliding" }, ref) => {
     const { open, setOpen, value, triggerRef } = useSelectContext();
     const containerRef = useRef<HTMLDivElement>(null);
     const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
@@ -453,7 +459,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
     const isHoveringOther = activeIndex !== null && activeIndex !== checkedIndex;
 
     return createPortal(
-      <SelectContentContext.Provider value={{ registerItem, activeIndex, checkedIndex }}>
+      <SelectContentContext.Provider value={{ registerItem, activeIndex, checkedIndex, highlightStyle }}>
         <div style={portalStyle}>
           <motion.div
             ref={(node) => {
@@ -489,47 +495,51 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
             transition={springs.fast}
             style={{ transformOrigin, maxHeight: menuMaxHeight }}
           >
-            <AnimatePresence>
-              {checkedRect && (
-                <motion.div
-                  className={`absolute ${shape.bg} bg-neutral-200/50 dark:bg-neutral-800/40 pointer-events-none`}
-                  initial={false}
-                  animate={{
-                    top: checkedRect.top,
-                    left: checkedRect.left,
-                    width: checkedRect.width,
-                    height: checkedRect.height,
-                    opacity: isHoveringOther ? 0.8 : 1,
-                  }}
-                  exit={{ opacity: 0, transition: { duration: 0.12 } }}
-                  transition={{ ...springs.moderate, opacity: { duration: 0.08 } }}
-                />
-              )}
-            </AnimatePresence>
-            <AnimatePresence>
-              {activeRect && (
-                <motion.div
-                  key={sessionRef.current}
-                  className={`absolute ${shape.bg} bg-neutral-200/40 dark:bg-neutral-800/25 pointer-events-none`}
-                  initial={{
-                    opacity: 0,
-                    top: checkedRect?.top ?? activeRect.top,
-                    left: checkedRect?.left ?? activeRect.left,
-                    width: checkedRect?.width ?? activeRect.width,
-                    height: checkedRect?.height ?? activeRect.height,
-                  }}
-                  animate={{
-                    opacity: 1,
-                    top: activeRect.top,
-                    left: activeRect.left,
-                    width: activeRect.width,
-                    height: activeRect.height,
-                  }}
-                  exit={{ opacity: 0, transition: { duration: 0.06 } }}
-                  transition={{ ...springs.fast, opacity: { duration: 0.08 } }}
-                />
-              )}
-            </AnimatePresence>
+            {highlightStyle === "sliding" ? (
+              <>
+                <AnimatePresence>
+                  {checkedRect && (
+                    <motion.div
+                      className={`absolute ${shape.bg} bg-neutral-200/50 dark:bg-neutral-800/40 pointer-events-none`}
+                      initial={false}
+                      animate={{
+                        top: checkedRect.top,
+                        left: checkedRect.left,
+                        width: checkedRect.width,
+                        height: checkedRect.height,
+                        opacity: isHoveringOther ? 0.8 : 1,
+                      }}
+                      exit={{ opacity: 0, transition: { duration: 0.12 } }}
+                      transition={{ ...springs.moderate, opacity: { duration: 0.08 } }}
+                    />
+                  )}
+                </AnimatePresence>
+                <AnimatePresence>
+                  {activeRect && (
+                    <motion.div
+                      key={sessionRef.current}
+                      className={`absolute ${shape.bg} bg-neutral-200/40 dark:bg-neutral-800/25 pointer-events-none`}
+                      initial={{
+                        opacity: 0,
+                        top: checkedRect?.top ?? activeRect.top,
+                        left: checkedRect?.left ?? activeRect.left,
+                        width: checkedRect?.width ?? activeRect.width,
+                        height: checkedRect?.height ?? activeRect.height,
+                      }}
+                      animate={{
+                        opacity: 1,
+                        top: activeRect.top,
+                        left: activeRect.left,
+                        width: activeRect.width,
+                        height: activeRect.height,
+                      }}
+                      exit={{ opacity: 0, transition: { duration: 0.06 } }}
+                      transition={{ ...springs.fast, opacity: { duration: 0.08 } }}
+                    />
+                  )}
+                </AnimatePresence>
+              </>
+            ) : null}
             <AnimatePresence>
               {focusRect && (
                 <motion.div
@@ -585,6 +595,7 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     const isActive = contentCtx?.activeIndex === index;
     const isChecked = selectCtx.value === value;
     const skipAnimation = !hasMounted.current;
+    const clearHighlight = contentCtx?.highlightStyle === "clear";
 
     return (
       <div
@@ -609,8 +620,10 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
         }}
         className={cn(
           `relative z-10 flex items-center gap-2 ${shape.item} px-2 py-2 text-[13px] cursor-pointer outline-none select-none`,
-          "transition-[color] duration-80",
+          "transition-[background-color,color] duration-80",
           isActive || isChecked ? "text-foreground" : "text-muted-foreground",
+          clearHighlight && isChecked && "bg-neutral-200/60 dark:bg-neutral-800/50",
+          clearHighlight && !isChecked && isActive && "bg-neutral-100 dark:bg-neutral-800/35",
           disabled && "opacity-50 pointer-events-none",
           className,
         )}

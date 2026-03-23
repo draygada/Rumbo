@@ -19,38 +19,56 @@ import { ChevronLeftIcon, ChevronRightIcon } from "@radix-ui/react-icons"
 
 interface BaseCalendarProps {
   className?: string
+  compact?: boolean
 }
 
 type CalendarProps = ComponentProps<typeof CalendarRac> & BaseCalendarProps
 type RangeCalendarProps = ComponentProps<typeof RangeCalendarRac> &
   BaseCalendarProps
 
-const CalendarHeader = () => (
+const CalendarHeader = ({ compact = false }: { compact?: boolean }) => (
   <header className="flex w-full items-center gap-1 pb-1">
     <Button
       slot="previous"
-      className="flex size-9 items-center justify-center rounded-lg text-muted-foreground/80 outline-offset-2 transition-colors hover:bg-accent hover:text-foreground focus:outline-none data-[focus-visible]:outline data-[focus-visible]:outline-2 data-[focus-visible]:outline-ring/70"
+      className={cn(
+        "flex items-center justify-center rounded-lg text-muted-foreground/80 outline-offset-2 transition-colors hover:bg-accent hover:text-foreground focus:outline-none data-[focus-visible]:outline data-[focus-visible]:outline-2 data-[focus-visible]:outline-ring/70",
+        compact ? "size-8" : "size-9",
+      )}
     >
       <ChevronLeftIcon width={16} height={16} />
     </Button>
-    <HeadingRac className="grow text-center text-sm font-medium" />
+    <HeadingRac className={cn("grow text-center font-medium", compact ? "text-[13px]" : "text-sm")} />
     <Button
       slot="next"
-      className="flex size-9 items-center justify-center rounded-lg text-muted-foreground/80 outline-offset-2 transition-colors hover:bg-accent hover:text-foreground focus:outline-none data-[focus-visible]:outline data-[focus-visible]:outline-2 data-[focus-visible]:outline-ring/70"
+      className={cn(
+        "flex items-center justify-center rounded-lg text-muted-foreground/80 outline-offset-2 transition-colors hover:bg-accent hover:text-foreground focus:outline-none data-[focus-visible]:outline data-[focus-visible]:outline-2 data-[focus-visible]:outline-ring/70",
+        compact ? "size-8" : "size-9",
+      )}
     >
       <ChevronRightIcon width={16} height={16} />
     </Button>
   </header>
 )
 
-const CalendarGridComponent = ({ isRange = false }: { isRange?: boolean }) => {
+const CalendarGridComponent = ({
+  isRange = false,
+  compact = false,
+}: {
+  isRange?: boolean
+  compact?: boolean
+}) => {
   const now = today(getLocalTimeZone())
 
   return (
     <CalendarGridRac>
       <CalendarGridHeaderRac>
         {(day) => (
-          <CalendarHeaderCellRac className="size-9 rounded-lg p-0 text-xs font-medium text-muted-foreground/80">
+          <CalendarHeaderCellRac
+            className={cn(
+              "rounded-lg p-0 font-medium text-muted-foreground/80",
+              compact ? "size-8 text-[11px]" : "size-9 text-xs",
+            )}
+          >
             {day}
           </CalendarHeaderCellRac>
         )}
@@ -60,7 +78,8 @@ const CalendarGridComponent = ({ isRange = false }: { isRange?: boolean }) => {
           <CalendarCellRac
             date={date}
             className={cn(
-              "relative flex size-9 items-center justify-center whitespace-nowrap rounded-lg border border-transparent p-0 text-sm font-normal text-foreground outline-offset-2 duration-150 [transition-property:color,background-color,border-radius,box-shadow] focus:outline-none data-[disabled]:pointer-events-none data-[unavailable]:pointer-events-none data-[focus-visible]:z-10 data-[hovered]:bg-accent data-[selected]:bg-primary data-[hovered]:text-foreground data-[selected]:text-primary-foreground data-[unavailable]:line-through data-[disabled]:opacity-30 data-[unavailable]:opacity-30 data-[focus-visible]:outline data-[focus-visible]:outline-2 data-[focus-visible]:outline-ring/70",
+              "relative flex items-center justify-center whitespace-nowrap rounded-lg border border-transparent p-0 font-normal text-foreground outline-offset-2 duration-150 [transition-property:color,background-color,border-radius,box-shadow] focus:outline-none data-[disabled]:pointer-events-none data-[unavailable]:pointer-events-none data-[focus-visible]:z-10 data-[hovered]:bg-accent data-[selected]:bg-primary data-[hovered]:text-foreground data-[selected]:text-primary-foreground data-[unavailable]:line-through data-[disabled]:opacity-30 data-[unavailable]:opacity-30 data-[focus-visible]:outline data-[focus-visible]:outline-2 data-[focus-visible]:outline-ring/70",
+              compact ? "size-8 text-[13px]" : "size-9 text-sm",
               // Range-specific styles
               isRange &&
                 "data-[selected]:rounded-none data-[selection-end]:rounded-e-lg data-[selection-start]:rounded-s-lg data-[invalid]:bg-red-100 data-[selected]:bg-accent data-[selected]:text-foreground data-[invalid]:data-[selection-end]:[&:not([data-hover])]:bg-destructive data-[invalid]:data-[selection-start]:[&:not([data-hover])]:bg-destructive data-[selection-end]:[&:not([data-hover])]:bg-primary data-[selection-start]:[&:not([data-hover])]:bg-primary data-[invalid]:data-[selection-end]:[&:not([data-hover])]:text-destructive-foreground data-[invalid]:data-[selection-start]:[&:not([data-hover])]:text-destructive-foreground data-[selection-end]:[&:not([data-hover])]:text-primary-foreground data-[selection-start]:[&:not([data-hover])]:text-primary-foreground",
@@ -80,7 +99,7 @@ const CalendarGridComponent = ({ isRange = false }: { isRange?: boolean }) => {
   )
 }
 
-const Calendar = ({ className, ...props }: CalendarProps) => {
+const Calendar = ({ className, compact = false, ...props }: CalendarProps) => {
   return (
     <CalendarRac
       {...props}
@@ -88,13 +107,13 @@ const Calendar = ({ className, ...props }: CalendarProps) => {
         cn("w-fit", className),
       )}
     >
-      <CalendarHeader />
-      <CalendarGridComponent />
+      <CalendarHeader compact={compact} />
+      <CalendarGridComponent compact={compact} />
     </CalendarRac>
   )
 }
 
-const RangeCalendar = ({ className, ...props }: RangeCalendarProps) => {
+const RangeCalendar = ({ className, compact = false, ...props }: RangeCalendarProps) => {
   return (
     <RangeCalendarRac
       {...props}
@@ -102,8 +121,8 @@ const RangeCalendar = ({ className, ...props }: RangeCalendarProps) => {
         cn("w-fit", className),
       )}
     >
-      <CalendarHeader />
-      <CalendarGridComponent isRange />
+      <CalendarHeader compact={compact} />
+      <CalendarGridComponent isRange compact={compact} />
     </RangeCalendarRac>
   )
 }
