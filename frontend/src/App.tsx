@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from './store/authStore'
 import { AuthForm } from '@/components/ui/premium-auth'
-import rumboLogo from '@/assets/rumbo-logo.png'
 import { QuickAddModal } from '@/components/QuickAddModal'
+import { Dashboard } from '@/components/Dashboard'
 
 async function getWindowLabelSafe(): Promise<string> {
   try {
@@ -20,8 +20,6 @@ function App() {
   const initialize = useAuthStore((s) => s.initialize)
   const initializing = useAuthStore((s) => s.initializing)
   const session = useAuthStore((s) => s.session)
-  const user = useAuthStore((s) => s.user)
-  const signOut = useAuthStore((s) => s.signOut)
 
   const [mode] = useState<'login' | 'signup'>('login')
   const [windowLabel, setWindowLabel] = useState<string>('main')
@@ -60,35 +58,7 @@ function App() {
     return <QuickAddModal />
   }
 
-  return (
-    <div className="min-h-screen bg-rumbo-bg text-rumbo-text p-6">
-      <div className="mx-auto max-w-3xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-start gap-3">
-            <img src={rumboLogo} alt="Rumbo" className="h-8 w-auto mt-0.5" />
-            <div>
-            <h1 className="mt-1 text-2xl font-semibold">Dashboard (placeholder)</h1>
-            <p className="mt-1 text-sm text-black/60">
-              Signed in as <span className="font-medium text-black/80">{user?.email}</span>
-            </p>
-            </div>
-          </div>
-          <button
-            onClick={() => void signOut()}
-            className="rounded-lg border border-black/10 bg-white px-3 py-2 text-sm font-semibold hover:bg-black/5"
-          >
-            Sign out
-          </button>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-black/10 bg-white/70 px-6 py-5">
-          <div className="text-sm text-black/70">
-            Next: tasks, quick-add modal UI, and syncing with Supabase tables.
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+  return <Dashboard />
 }
 
 export default App
