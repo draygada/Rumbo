@@ -1,5 +1,4 @@
 export type UserTier = 'free' | 'premium'
-export type CalendarProvider = 'google' | 'outlook' | 'none'
 export type WorkType = 'deep' | 'shallow'
 export type ClassifierConfidence = 'high' | 'low' | 'none'
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'overdue'
@@ -10,10 +9,37 @@ export interface User {
   name: string | null
   university: string | null
   tier: UserTier
-  calendar_provider: CalendarProvider
+  google_calendar_connected: boolean
+  outlook_connected: boolean
+  google_oauth_tokens?: Record<string, unknown> | null
+  outlook_oauth_tokens?: Record<string, unknown> | null
+  onboarding_complete: boolean
   created_at: string
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
+}
+
+export type PeakWindow = 'early_bird' | 'morning' | 'afternoon' | 'night'
+
+export interface HourScore {
+  hour: number
+  score: number
+}
+
+export interface RecurringBlock {
+  days: string[]
+  start_time: string
+  end_time: string
+  label: string
+}
+
+export interface LearningProfile {
+  user_id: string
+  peak_hour_map: HourScore[]
+  target_block_mins: number
+  unavailable_before: string
+  unavailable_after: string
+  recurring_blocks: RecurringBlock[]
 }
 
 export interface Task {

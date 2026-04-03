@@ -35,9 +35,13 @@ interface FormErrors {
   general?: string
 }
 
+const EMAIL_INVALID_MESSAGE = 'Email Invalid'
+const ACCOUNT_EXISTS_MESSAGE = 'An Account with this email already exists'
+const CHECK_EMAIL_MESSAGE = 'Check your email for a confirmation link.'
+
 function validateEmail(email: string) {
-  if (!email.trim()) return 'Email is required'
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Please enter a valid email address'
+  if (!email.trim()) return EMAIL_INVALID_MESSAGE
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return EMAIL_INVALID_MESSAGE
   return ''
 }
 
@@ -52,6 +56,7 @@ function validatePassword(password: string) {
 export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
   const signIn = useAuthStore((s) => s.signIn)
   const signUp = useAuthStore((s) => s.signUp)
+  const resendSignupConfirmation = useAuthStore((s) => s.resendSignupConfirmation)
 
   const storeError = useAuthStore((s) => s.error)
   const initializing = useAuthStore((s) => s.initializing)
@@ -60,6 +65,9 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [signupConfirmationEmail, setSignupConfirmationEmail] = useState<string | null>(null)
+  const [isResending, setIsResending] = useState(false)
+  const [resendNotice, setResendNotice] = useState<string | null>(null)
 
   const [formData, setFormData] = useState<FormData>({
     email: '',
@@ -76,9 +84,28 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
     setErrors({})
     setTouched({})
     setIsLoading(false)
+    setSignupConfirmationEmail(null)
+    setIsResending(false)
+    setResendNotice(null)
     setShowPassword(false)
     setShowConfirmPassword(false)
   }, [authMode])
+
+  const mapSignupError = useCallback((message: string) => {
+    const lower = message.toLowerCase()
+    if (
+      lower.includes('already registered') ||
+      lower.includes('already exists') ||
+      lower.includes('user already') ||
+      lower.includes('email exists')
+    ) {
+      return ACCOUNT_EXISTS_MESSAGE
+    }
+    if (lower.includes('invalid email') || lower.includes('email') && lower.includes('invalid')) {
+      return EMAIL_INVALID_MESSAGE
+    }
+    return EMAIL_INVALID_MESSAGE
+  }, [])
 
   const validateField = useCallback(
     (field: keyof FormData, value: string) => {
@@ -192,22 +219,38 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
 
     setIsLoading(true)
     setErrors({})
+    setSignupConfirmationEmail(null)
+    setResendNotice(null)
 
     try {
+      const email = formData.email.trim()
       if (authMode === 'login') {
-        await signIn(formData.email.trim(), formData.password)
+        await signIn(email, formData.password)
       } else {
-        await signUp(formData.email.trim(), formData.password)
+        await signUp(email, formData.password)
+        const { error } = useAuthStore.getState()
+        if (error) {
+          setErrors({ general: mapSignupError(error) })
+          return
+        }
+        setSignupConfirmationEmail(email)
+        setFormData((prev) => ({
+          ...prev,
+          password: '',
+          confirmPassword: '',
+        }))
+        setTouched({})
       }
     } catch (err) {
-      setErrors({ general: (err as Error).message ?? 'Authentication failed. Please try again.' })
+      const fallback = (err as Error).message ?? 'Authentication failed. Please try again.'
+      setErrors({ general: authMode === 'signup' ? mapSignupError(fallback) : fallback })
     } finally {
       setIsLoading(false)
     }
   }
 
-  const generalError = errors.general || storeError || undefined
   const isSignup = authMode === 'signup'
+  const generalError = errors.general || (isSignup ? undefined : storeError) || undefined
 
   return (
     <div className={cn('p-6', className)} role="dialog" aria-modal="true" aria-labelledby="auth-title">
@@ -254,7 +297,52 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
         </button>
       </div>
 
-      <form onSubmit={onSubmit} className="space-y-4">
+      {isSignup && signupConfirmationEmail ? (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-[#6B7FBE]/20 bg-[#EEF0FA] px-4 py-4">
+            <div className="flex items-start gap-3">
+              <Mail className="mt-0.5 h-5 w-5 text-[#6B7FBE]" />
+              <div>
+                <div className="text-sm font-semibold text-[#1A1A2E]">{CHECK_EMAIL_MESSAGE}</div>
+                <div className="mt-1 text-xs text-[#4A4A5A]">{signupConfirmationEmail}</div>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!signupConfirmationEmail || isResending) return
+              setIsResending(true)
+              setResendNotice(null)
+              await resendSignupConfirmation(signupConfirmationEmail)
+              const { error } = useAuthStore.getState()
+              setResendNotice(error ? mapSignupError(error) : CHECK_EMAIL_MESSAGE)
+              setIsResending(false)
+            }}
+            disabled={isResending}
+            className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#1A1A2E] transition-colors hover:border-[#6B7FBE] disabled:opacity-60"
+          >
+            {isResending ? 'Resending…' : 'Resend confirmation email'}
+          </button>
+          {resendNotice ? (
+            <div className="rounded-xl border border-[#6B7FBE]/20 bg-[#EEF0FA] px-3 py-2 text-sm text-[#1A1A2E]">
+              {resendNotice}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setAuthMode('login')}
+            className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#1A1A2E] transition-colors hover:border-[#6B7FBE]"
+          >
+            Back to Login
+          </button>
+        </div>
+      ) : null}
+
+      <form
+        onSubmit={onSubmit}
+        className={cn('space-y-4', isSignup && signupConfirmationEmail ? 'hidden' : undefined)}
+      >
         <div>
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-black/40" />

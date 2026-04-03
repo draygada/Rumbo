@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils"
 import { getLocalTimeZone, today } from "@internationalized/date"
-import { ComponentProps } from "react"
+import type { ComponentProps } from "react"
 import {
   Button,
   CalendarCell as CalendarCellRac,

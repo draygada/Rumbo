@@ -3,6 +3,8 @@ import { useAuthStore } from './store/authStore'
 import { AuthForm } from '@/components/ui/premium-auth'
 import { QuickAddModal } from '@/components/QuickAddModal'
 import { Dashboard } from '@/components/Dashboard'
+import { Onboarding } from '@/components/Onboarding'
+import { supabase } from '@/lib/supabase'
 
 async function getWindowLabelSafe(): Promise<string> {
   try {
@@ -23,6 +25,7 @@ function App() {
 
   const [mode] = useState<'login' | 'signup'>('login')
   const [windowLabel, setWindowLabel] = useState<string>('main')
+  const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null)
 
   useEffect(() => {
     void initialize()
@@ -34,6 +37,36 @@ function App() {
       setWindowLabel(label)
     })()
   }, [])
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setOnboardingComplete(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      if (!supabase) {
+        if (!cancelled) setOnboardingComplete(true)
+        return
+      }
+      const { data, error } = await supabase
+        .from('users')
+        .select('onboarding_complete')
+        .eq('id', session.user.id)
+        .maybeSingle()
+
+      if (cancelled) return
+      if (error) {
+        setOnboardingComplete(false)
+        return
+      }
+      setOnboardingComplete(Boolean(data?.onboarding_complete))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [session?.user?.id])
 
   if (initializing) {
     return (
@@ -56,6 +89,18 @@ function App() {
   // Render quick-add modal UI in the quick-add window
   if (windowLabel === 'quick-add') {
     return <QuickAddModal />
+  }
+
+  if (onboardingComplete == null) {
+    return (
+      <div className="min-h-screen bg-rumbo-bg text-rumbo-text flex items-center justify-center">
+        <div className="text-sm text-black/60">Loading…</div>
+      </div>
+    )
+  }
+
+  if (!onboardingComplete) {
+    return <Onboarding onComplete={() => setOnboardingComplete(true)} />
   }
 
   return <Dashboard />

@@ -14,7 +14,7 @@ export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'overdue'
 
 export type DeadlineStrategy = 'front_load' | 'even' | 'ramp' | 'unknown'
 
-export type PeakWindow = 'morning' | 'afternoon' | 'night'
+export type PeakWindow = 'early_bird' | 'morning' | 'afternoon' | 'night'
 
 export type CalendarProvider = 'google' | 'outlook' | 'none'
 
@@ -31,7 +31,10 @@ export interface User {
   name: string | null
   university: string | null
   tier: UserTier
-  calendar_provider: CalendarProvider
+  google_calendar_connected: boolean
+  outlook_connected: boolean
+  google_oauth_tokens?: Record<string, unknown> | null
+  outlook_oauth_tokens?: Record<string, unknown> | null
   created_at: string                  // ISO 8601
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
@@ -45,10 +48,10 @@ export interface User {
 
 export interface OnboardingPreferences {
   user_id: string
-  peak_window: PeakWindow             // Q1 — morning / afternoon / night
+  peak_window: PeakWindow             // Q1 — early bird / morning / afternoon / night
   unavailable_before: string          // Q2 — "HH:MM" 24h e.g. "08:00"
   unavailable_after: string           // Q2 — "HH:MM" 24h e.g. "23:00"
-  preferred_block_mins: number        // Q3 — 25 | 38 | 50 | 75
+  preferred_block_mins: number        // Q3 — seeded 45 | 90 | 180 | 240 (hour buckets)
   completed_at: string                // ISO 8601
 }
 

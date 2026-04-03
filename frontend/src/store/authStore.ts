@@ -24,6 +24,7 @@ type AuthState = {
   initialize: () => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
+  resendSignupConfirmation: (email: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -47,7 +48,11 @@ function toRumboUser(session: Session | null): User | null {
     name: (u.user_metadata?.name as string | undefined) ?? null,
     university: null,
     tier: 'free',
-    calendar_provider: 'none',
+    google_calendar_connected: false,
+    outlook_connected: false,
+    google_oauth_tokens: null,
+    outlook_oauth_tokens: null,
+    onboarding_complete: false,
     created_at: u.created_at ?? new Date().toISOString(),
     stripe_customer_id: null,
     stripe_subscription_id: null,
@@ -56,7 +61,7 @@ function toRumboUser(session: Session | null): User | null {
 
 async function persistSession(session: Session | null) {
   if (!isTauriRuntime()) return
-  const store = new Store(AUTH_STORE_FILE)
+  const store = await Store.load(AUTH_STORE_FILE)
   if (!session) {
     await store.delete(SESSION_KEY)
     await store.save()
@@ -77,7 +82,7 @@ async function restoreSession(): Promise<Session | null> {
     return data.session
   }
 
-  const store = new Store(AUTH_STORE_FILE)
+  const store = await Store.load(AUTH_STORE_FILE)
   const saved = (await store.get(SESSION_KEY)) as
     | { access_token?: string; refresh_token?: string }
     | null
@@ -95,7 +100,7 @@ async function restoreSession(): Promise<Session | null> {
   return data.session
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   session: null,
   initializing: true,
@@ -167,6 +172,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await persistSession(data.session)
     } catch {
       // fail silently
+    }
+  },
+
+  resendSignupConfirmation: async (email) => {
+    set({ error: null })
+    assertSupabaseConfigured()
+    const { error } = await supabase!.auth.resend({
+      type: 'signup',
+      email,
+    })
+    if (error) {
+      set({ error: error.message })
     }
   },
 
