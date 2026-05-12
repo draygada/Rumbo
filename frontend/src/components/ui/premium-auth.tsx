@@ -7,9 +7,9 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
-  Loader2,
   Lock,
   Mail,
+  User,
 } from 'lucide-react'
 
 import { useAuthStore } from '@/store/authStore'
@@ -26,18 +26,19 @@ interface FormData {
   email: string
   password: string
   confirmPassword: string
+  name: string
 }
 
 interface FormErrors {
   email?: string
   password?: string
   confirmPassword?: string
+  name?: string
   general?: string
 }
 
 const EMAIL_INVALID_MESSAGE = 'Email Invalid'
 const ACCOUNT_EXISTS_MESSAGE = 'An Account with this email already exists'
-const CHECK_EMAIL_MESSAGE = 'Check your email for a confirmation link.'
 
 function validateEmail(email: string) {
   if (!email.trim()) return EMAIL_INVALID_MESSAGE
@@ -65,14 +66,15 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [signupConfirmationEmail, setSignupConfirmationEmail] = useState<string | null>(null)
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState<string | null>(null)
   const [isResending, setIsResending] = useState(false)
-  const [resendNotice, setResendNotice] = useState<string | null>(null)
+  const [resendSent, setResendSent] = useState(false)
 
   const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
     confirmPassword: '',
+    name: '',
   })
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
@@ -80,15 +82,13 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
   const confirmDebounceRef = useRef<number | null>(null)
 
   useEffect(() => {
-    // Clear form errors when switching modes
     setErrors({})
     setTouched({})
     setIsLoading(false)
-    setSignupConfirmationEmail(null)
-    setIsResending(false)
-    setResendNotice(null)
     setShowPassword(false)
     setShowConfirmPassword(false)
+    setAwaitingConfirmation(null)
+    setResendSent(false)
   }, [authMode])
 
   const mapSignupError = useCallback((message: string) => {
@@ -100,9 +100,6 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
       lower.includes('email exists')
     ) {
       return ACCOUNT_EXISTS_MESSAGE
-    }
-    if (lower.includes('invalid email') || lower.includes('email') && lower.includes('invalid')) {
-      return EMAIL_INVALID_MESSAGE
     }
     return EMAIL_INVALID_MESSAGE
   }, [])
@@ -119,6 +116,10 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
           if (!value) return 'Please confirm your password'
           if (value !== formData.password) return 'Passwords do not match'
           return ''
+        case 'name':
+          if (authMode !== 'signup') return ''
+          if (!value.trim()) return 'Name is required'
+          return ''
       }
     },
     [authMode, formData.password],
@@ -127,7 +128,6 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
   const setField = useCallback(
     (field: keyof FormData, value: string) => {
       setFormData((prev) => ({ ...prev, [field]: value }))
-      // Password validation is debounced (see effect below).
       if (field !== 'password' && field !== 'confirmPassword' && touched[field]) {
         const err = validateField(field, value)
         setErrors((prev) => ({ ...prev, [field]: err || undefined }))
@@ -148,40 +148,26 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
 
   useEffect(() => {
     if (authMode !== 'signup') return
-
     if (passwordDebounceRef.current) window.clearTimeout(passwordDebounceRef.current)
     passwordDebounceRef.current = window.setTimeout(() => {
       const value = formData.password
-      if (!value) {
-        setErrors((prev) => ({ ...prev, password: undefined }))
-        return
-      }
+      if (!value) { setErrors((prev) => ({ ...prev, password: undefined })); return }
       const err = validatePassword(value)
       setErrors((prev) => ({ ...prev, password: err || undefined }))
     }, 150)
-
-    return () => {
-      if (passwordDebounceRef.current) window.clearTimeout(passwordDebounceRef.current)
-    }
+    return () => { if (passwordDebounceRef.current) window.clearTimeout(passwordDebounceRef.current) }
   }, [authMode, formData.password])
 
   useEffect(() => {
     if (authMode !== 'signup') return
-
     if (confirmDebounceRef.current) window.clearTimeout(confirmDebounceRef.current)
     confirmDebounceRef.current = window.setTimeout(() => {
       const value = formData.confirmPassword
-      if (!value) {
-        setErrors((prev) => ({ ...prev, confirmPassword: undefined }))
-        return
-      }
+      if (!value) { setErrors((prev) => ({ ...prev, confirmPassword: undefined })); return }
       const err = value !== formData.password ? 'Passwords do not match' : ''
       setErrors((prev) => ({ ...prev, confirmPassword: err || undefined }))
     }, 150)
-
-    return () => {
-      if (confirmDebounceRef.current) window.clearTimeout(confirmDebounceRef.current)
-    }
+    return () => { if (confirmDebounceRef.current) window.clearTimeout(confirmDebounceRef.current) }
   }, [authMode, formData.confirmPassword, formData.password])
 
   const canSubmit = useMemo(() => {
@@ -192,7 +178,8 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
     return (
       !!formData.email.trim() &&
       !!formData.password &&
-      !!formData.confirmPassword
+      !!formData.confirmPassword &&
+      !!formData.name.trim()
     )
   }, [authMode, formData, initializing, isLoading])
 
@@ -200,15 +187,13 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
     const next: FormErrors = {}
     const emailErr = validateEmail(formData.email)
     if (emailErr) next.email = emailErr
-
     const passErr = validatePassword(formData.password)
     if (passErr) next.password = passErr
-
     if (authMode === 'signup') {
       const confirmErr = validateField('confirmPassword', formData.confirmPassword)
       if (confirmErr) next.confirmPassword = confirmErr
+      if (!formData.name.trim()) next.name = 'Name is required'
     }
-
     setErrors(next)
     return Object.keys(next).length === 0
   }, [authMode, formData, validateField])
@@ -219,27 +204,23 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
 
     setIsLoading(true)
     setErrors({})
-    setSignupConfirmationEmail(null)
-    setResendNotice(null)
 
     try {
       const email = formData.email.trim()
       if (authMode === 'login') {
         await signIn(email, formData.password)
-      } else {
-        await signUp(email, formData.password)
         const { error } = useAuthStore.getState()
+        if (error) setErrors({ general: error })
+      } else {
+        await signUp(email, formData.password, formData.name.trim())
+        const { error, session } = useAuthStore.getState()
         if (error) {
           setErrors({ general: mapSignupError(error) })
-          return
+        } else if (!session) {
+          // Supabase email confirmation is enabled — tell the user to check their inbox.
+          setAwaitingConfirmation(email)
         }
-        setSignupConfirmationEmail(email)
-        setFormData((prev) => ({
-          ...prev,
-          password: '',
-          confirmPassword: '',
-        }))
-        setTouched({})
+        // If session exists, App.tsx picks it up automatically and routes to onboarding.
       }
     } catch (err) {
       const fallback = (err as Error).message ?? 'Authentication failed. Please try again.'
@@ -250,7 +231,7 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
   }
 
   const isSignup = authMode === 'signup'
-  const generalError = errors.general || (isSignup ? undefined : storeError) || undefined
+  const generalError = errors.general || undefined
 
   return (
     <div className={cn('p-6', className)} role="dialog" aria-modal="true" aria-labelledby="auth-title">
@@ -297,38 +278,34 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
         </button>
       </div>
 
-      {isSignup && signupConfirmationEmail ? (
+      {awaitingConfirmation ? (
         <div className="space-y-4">
           <div className="rounded-xl border border-[#6B7FBE]/20 bg-[#EEF0FA] px-4 py-4">
             <div className="flex items-start gap-3">
-              <Mail className="mt-0.5 h-5 w-5 text-[#6B7FBE]" />
+              <Mail className="mt-0.5 h-5 w-5 shrink-0 text-[#6B7FBE]" />
               <div>
-                <div className="text-sm font-semibold text-[#1A1A2E]">{CHECK_EMAIL_MESSAGE}</div>
-                <div className="mt-1 text-xs text-[#4A4A5A]">{signupConfirmationEmail}</div>
+                <div className="text-sm font-semibold text-[#1A1A2E]">Check your email to confirm your account</div>
+                <div className="mt-1 text-xs text-[#4A4A5A]">
+                  We sent a confirmation link to <span className="font-medium">{awaitingConfirmation}</span>.
+                  Open it to finish creating your account, then sign in.
+                </div>
               </div>
             </div>
           </div>
           <button
             type="button"
-            onClick={async () => {
-              if (!signupConfirmationEmail || isResending) return
-              setIsResending(true)
-              setResendNotice(null)
-              await resendSignupConfirmation(signupConfirmationEmail)
-              const { error } = useAuthStore.getState()
-              setResendNotice(error ? mapSignupError(error) : CHECK_EMAIL_MESSAGE)
-              setIsResending(false)
-            }}
             disabled={isResending}
-            className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#1A1A2E] transition-colors hover:border-[#6B7FBE] disabled:opacity-60"
+            onClick={async () => {
+              setIsResending(true)
+              setResendSent(false)
+              await resendSignupConfirmation(awaitingConfirmation)
+              setIsResending(false)
+              setResendSent(true)
+            }}
+            className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#1A1A2E] transition-colors hover:border-[#6B7FBE] disabled:opacity-50"
           >
-            {isResending ? 'Resending…' : 'Resend confirmation email'}
+            {isResending ? 'Sending…' : resendSent ? 'Email sent ✓' : 'Resend confirmation email'}
           </button>
-          {resendNotice ? (
-            <div className="rounded-xl border border-[#6B7FBE]/20 bg-[#EEF0FA] px-3 py-2 text-sm text-[#1A1A2E]">
-              {resendNotice}
-            </div>
-          ) : null}
           <button
             type="button"
             onClick={() => setAuthMode('login')}
@@ -339,10 +316,39 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
         </div>
       ) : null}
 
-      <form
-        onSubmit={onSubmit}
-        className={cn('space-y-4', isSignup && signupConfirmationEmail ? 'hidden' : undefined)}
-      >
+      <form onSubmit={onSubmit} className={cn('space-y-4', awaitingConfirmation ? 'hidden' : undefined)}>
+        {/* Name — signup only */}
+        <div
+          className={cn(
+            'transition-all duration-500 ease-in-out overflow-hidden',
+            isSignup ? 'max-h-24 opacity-100' : 'max-h-0 opacity-0 pointer-events-none',
+          )}
+          aria-hidden={!isSignup}
+        >
+          <div className="relative">
+            <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-black/40" />
+            <input
+              type="text"
+              placeholder="Full Name"
+              value={formData.name}
+              onChange={(e) => setField('name', e.target.value)}
+              onBlur={() => blurField('name')}
+              tabIndex={isSignup ? 0 : -1}
+              className={cn(
+                'w-full pl-10 pr-4 py-3 bg-white border rounded-xl placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-rumbo-primary/20 transition-all',
+                errors.name ? 'border-red-500/50' : 'border-black/10',
+              )}
+            />
+          </div>
+          {errors.name ? (
+            <p className="text-red-700 text-xs mt-1 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              {errors.name}
+            </p>
+          ) : null}
+        </div>
+
+        {/* Email */}
         <div>
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-black/40" />
@@ -366,6 +372,7 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
           ) : null}
         </div>
 
+        {/* Password */}
         <div>
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-black/40" />
@@ -399,6 +406,7 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
           ) : null}
         </div>
 
+        {/* Confirm password — signup only */}
         <div
           className={cn(
             'transition-all duration-500 ease-in-out overflow-hidden',
@@ -406,44 +414,43 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
           )}
           aria-hidden={!isSignup}
         >
-          <div className={cn('pt-0', isSignup ? 'mt-0' : 'mt-0')}>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-black/40" />
-              <input
-                type={showConfirmPassword ? 'text' : 'password'}
-                placeholder="Confirm Password"
-                value={formData.confirmPassword}
-                onChange={(e) => setField('confirmPassword', e.target.value)}
-                onBlur={() => blurField('confirmPassword')}
-                className={cn(
-                  'w-full pl-10 pr-12 py-3 bg-white border rounded-xl placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-rumbo-primary/20 transition-all',
-                  errors.confirmPassword ? 'border-red-500/50' : 'border-black/10',
-                )}
-              />
-              {formData.confirmPassword ? (
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword((s) => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 hover:text-rumbo-text transition-colors"
-                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
-                  tabIndex={isSignup ? 0 : -1}
-                >
-                  {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
-              ) : null}
-            </div>
-            {errors.confirmPassword ? (
-              <p className="text-red-700 text-xs mt-1 flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3" />
-                {errors.confirmPassword}
-              </p>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-black/40" />
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              placeholder="Confirm Password"
+              value={formData.confirmPassword}
+              onChange={(e) => setField('confirmPassword', e.target.value)}
+              onBlur={() => blurField('confirmPassword')}
+              tabIndex={isSignup ? 0 : -1}
+              className={cn(
+                'w-full pl-10 pr-12 py-3 bg-white border rounded-xl placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-rumbo-primary/20 transition-all',
+                errors.confirmPassword ? 'border-red-500/50' : 'border-black/10',
+              )}
+            />
+            {formData.confirmPassword ? (
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 hover:text-rumbo-text transition-colors"
+                aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                tabIndex={isSignup ? 0 : -1}
+              >
+                {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
             ) : null}
           </div>
+          {errors.confirmPassword ? (
+            <p className="text-red-700 text-xs mt-1 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              {errors.confirmPassword}
+            </p>
+          ) : null}
         </div>
 
         <button
           type="submit"
-          disabled={!canSubmit}
+          disabled={isLoading}
           className={cn(
             'w-full relative bg-rumbo-primary text-white font-semibold py-3 px-6 rounded-xl transition-all',
             'hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-rumbo-primary/20 disabled:opacity-50',
@@ -451,7 +458,10 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
         >
           <span className="flex items-center justify-center gap-2">
             {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
             ) : authMode === 'login' ? (
               'Sign In'
             ) : (
@@ -463,4 +473,3 @@ export function AuthForm({ initialMode = 'login', className }: AuthFormProps) {
     </div>
   )
 }
-

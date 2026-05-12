@@ -10,7 +10,6 @@ async function getWindowLabelSafe(): Promise<string> {
   try {
     const mod = await import('@tauri-apps/api/window')
     const win = mod.getCurrentWindow()
-    // label exists on WebviewWindow in Tauri 2
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (win as any).label ?? 'main'
   } catch {
@@ -18,14 +17,24 @@ async function getWindowLabelSafe(): Promise<string> {
   }
 }
 
+type OnboardingStep = '1' | '2' | '3' | '4' | 'complete' | null
+
+function stepToNum(s: OnboardingStep): 1 | 2 | 3 | 4 {
+  if (s === '2') return 2
+  if (s === '3') return 3
+  if (s === '4') return 4
+  return 1
+}
+
 function App() {
   const initialize = useAuthStore((s) => s.initialize)
   const initializing = useAuthStore((s) => s.initializing)
   const session = useAuthStore((s) => s.session)
+  const signOut = useAuthStore((s) => s.signOut)
 
   const [mode] = useState<'login' | 'signup'>('login')
   const [windowLabel, setWindowLabel] = useState<string>('main')
-  const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null)
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(null)
 
   useEffect(() => {
     void initialize()
@@ -39,28 +48,45 @@ function App() {
   }, [])
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const { emit } = await import('@tauri-apps/api/event')
+        await emit('rumbo:onboarding-status', onboardingStep === 'complete')
+      } catch {
+        // not in Tauri runtime
+      }
+    })()
+  }, [onboardingStep])
+
+  useEffect(() => {
     if (!session?.user?.id) {
-      setOnboardingComplete(null)
+      setOnboardingStep(null)
       return
     }
     let cancelled = false
     void (async () => {
       if (!supabase) {
-        if (!cancelled) setOnboardingComplete(true)
+        if (!cancelled) setOnboardingStep('complete')
         return
       }
       const { data, error } = await supabase
         .from('users')
-        .select('onboarding_complete')
+        .select('onboarding_step')
         .eq('id', session.user.id)
         .maybeSingle()
 
       if (cancelled) return
       if (error) {
-        setOnboardingComplete(false)
+        setOnboardingStep('1')
         return
       }
-      setOnboardingComplete(Boolean(data?.onboarding_complete))
+      // No users row found — auth session is stale (user was deleted from DB).
+      // Sign out immediately so they land on the login screen instead of hitting RLS errors.
+      if (data === null) {
+        void signOut()
+        return
+      }
+      setOnboardingStep((data.onboarding_step as OnboardingStep) ?? '1')
     })()
 
     return () => {
@@ -86,12 +112,11 @@ function App() {
     )
   }
 
-  // Render quick-add modal UI in the quick-add window
   if (windowLabel === 'quick-add') {
     return <QuickAddModal />
   }
 
-  if (onboardingComplete == null) {
+  if (onboardingStep === null) {
     return (
       <div className="min-h-screen bg-rumbo-bg text-rumbo-text flex items-center justify-center">
         <div className="text-sm text-black/60">Loading…</div>
@@ -99,8 +124,13 @@ function App() {
     )
   }
 
-  if (!onboardingComplete) {
-    return <Onboarding onComplete={() => setOnboardingComplete(true)} />
+  if (onboardingStep !== 'complete') {
+    return (
+      <Onboarding
+        initialStep={stepToNum(onboardingStep)}
+        onComplete={() => setOnboardingStep('complete')}
+      />
+    )
   }
 
   return <Dashboard />

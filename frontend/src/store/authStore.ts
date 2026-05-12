@@ -23,7 +23,7 @@ type AuthState = {
 
   initialize: () => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
-  signUp: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string, name: string) => Promise<void>
   resendSignupConfirmation: (email: string) => Promise<void>
   signOut: () => Promise<void>
 }
@@ -34,7 +34,6 @@ const SESSION_KEY = 'supabase.session'
 function isTauriRuntime(): boolean {
   if (typeof window === 'undefined') return false
   const w = window as unknown as Record<string, unknown>
-  // Tauri v2 injects __TAURI_INTERNALS__; keep __TAURI__ for older behavior.
   return '__TAURI_INTERNALS__' in w || '__TAURI__' in w
 }
 
@@ -46,16 +45,16 @@ function toRumboUser(session: Session | null): User | null {
     id: u.id,
     email: u.email,
     name: (u.user_metadata?.name as string | undefined) ?? null,
-    university: null,
     tier: 'free',
-    google_calendar_connected: false,
-    outlook_connected: false,
-    google_oauth_tokens: null,
-    outlook_oauth_tokens: null,
-    onboarding_complete: false,
-    created_at: u.created_at ?? new Date().toISOString(),
     stripe_customer_id: null,
-    stripe_subscription_id: null,
+    stripe_sub_id: null,
+    onboarding_step: '1',
+    onboarding_q1: null,
+    onboarding_q2_before: null,
+    onboarding_q2_after: null,
+    onboarding_q3: null,
+    onboarding_q4: null,
+    created_at: u.created_at ?? new Date().toISOString(),
   }
 }
 
@@ -114,7 +113,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       try {
         restored = await restoreSession()
       } catch {
-        // If the Tauri store API isn't available (or not permitted), fall back silently.
         const { data } = await supabase!.auth.getSession()
         restored = data.session
       }
@@ -155,17 +153,22 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  signUp: async (email, password) => {
+  signUp: async (email, password, name) => {
     set({ error: null })
     assertSupabaseConfigured()
+    // No email verification at MVP — Supabase project must have email confirmation disabled.
+    // Name is passed in user_metadata so the DB trigger can write it to users.name.
     const { data, error } = await supabase!.auth.signUp({
       email,
       password,
+      options: { data: { name } },
     })
     if (error) {
       set({ error: error.message })
       return
     }
+    // session may be null if Supabase email confirmation is enabled —
+    // the form detects this and shows the "check your email" screen.
     set({ session: data.session, user: toRumboUser(data.session) })
     void emitAuthSession(!!data.session)
     try {
@@ -178,13 +181,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   resendSignupConfirmation: async (email) => {
     set({ error: null })
     assertSupabaseConfigured()
-    const { error } = await supabase!.auth.resend({
-      type: 'signup',
-      email,
-    })
-    if (error) {
-      set({ error: error.message })
-    }
+    const { error } = await supabase!.auth.resend({ type: 'signup', email })
+    if (error) set({ error: error.message })
   },
 
   signOut: async () => {
@@ -199,4 +197,3 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 }))
-

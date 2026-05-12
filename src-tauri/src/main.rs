@@ -17,14 +17,30 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
             let is_logged_in = Arc::new(AtomicBool::new(false));
+            let is_onboarding_complete = Arc::new(AtomicBool::new(false));
+
             let is_logged_in_for_listener = is_logged_in.clone();
+            let is_onboarding_complete_for_auth = is_onboarding_complete.clone();
 
             // Frontend emits this whenever auth session changes.
-            // Payload: JSON boolean
+            // Payload: JSON boolean. On logout, also reset onboarding state.
             app.listen("rumbo:auth-session", move |event| {
                 let logged_in = serde_json::from_str::<bool>(event.payload()).unwrap_or(false);
                 is_logged_in_for_listener.store(logged_in, Ordering::Relaxed);
+                if !logged_in {
+                    is_onboarding_complete_for_auth.store(false, Ordering::Relaxed);
+                }
                 println!("auth-session event: logged_in={logged_in}");
+            });
+
+            let is_onboarding_complete_for_listener = is_onboarding_complete.clone();
+
+            // Frontend emits this whenever onboarding step changes.
+            // Payload: JSON boolean — true only when onboarding_step === 'complete'.
+            app.listen("rumbo:onboarding-status", move |event| {
+                let complete = serde_json::from_str::<bool>(event.payload()).unwrap_or(false);
+                is_onboarding_complete_for_listener.store(complete, Ordering::Relaxed);
+                println!("onboarding-status event: complete={complete}");
             });
 
             // Build tray menu items
@@ -81,13 +97,16 @@ fn main() {
             #[cfg(target_os = "macos")]
             {
                 let is_logged_in_for_handler = is_logged_in.clone();
+                let is_onboarding_complete_for_handler = is_onboarding_complete.clone();
                 let plugin = tauri_plugin_global_shortcut::Builder::new()
                     .with_shortcuts(["CmdOrCtrl+Shift+Space"])
                     .map(|builder| {
                         builder
                             .with_handler(move |app, _shortcut, event| {
                                 if event.state == ShortcutState::Pressed {
-                                    if !is_logged_in_for_handler.load(Ordering::Relaxed) {
+                                    if !is_logged_in_for_handler.load(Ordering::Relaxed)
+                                        || !is_onboarding_complete_for_handler.load(Ordering::Relaxed)
+                                    {
                                         return;
                                     }
                                     if let Some(win) = app.get_webview_window("quick-add") {
@@ -113,13 +132,16 @@ fn main() {
             #[cfg(target_os = "windows")]
             {
                 let is_logged_in_for_handler = is_logged_in.clone();
+                let is_onboarding_complete_for_handler = is_onboarding_complete.clone();
                 let plugin = tauri_plugin_global_shortcut::Builder::new()
                     .with_shortcuts(["Ctrl+Shift+Space"])
                     .map(|builder| {
                         builder
                             .with_handler(move |app, _shortcut, event| {
                                 if event.state == ShortcutState::Pressed {
-                                    if !is_logged_in_for_handler.load(Ordering::Relaxed) {
+                                    if !is_logged_in_for_handler.load(Ordering::Relaxed)
+                                        || !is_onboarding_complete_for_handler.load(Ordering::Relaxed)
+                                    {
                                         return;
                                     }
                                     if let Some(win) = app.get_webview_window("quick-add") {

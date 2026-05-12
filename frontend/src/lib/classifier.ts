@@ -47,7 +47,6 @@ const DEEP_KEYWORDS = [
 ] as const
 
 function countMatches(haystack: string, needle: string): number {
-  // simple substring count; good enough for v1 keyword classifier
   if (!needle) return 0
   let count = 0
   let idx = 0
@@ -83,21 +82,17 @@ export function classifyTaskTitle(title: string, estimatedMins?: number): Classi
     }
   }
 
-  const confidenceValue = Math.max(shallowScore, deepScore) / (shallowScore + deepScore + 1)
-
-  let confidence: ClassifierResult['confidence']
-  if (confidenceValue >= 0.75) confidence = 'high'
-  else if (confidenceValue >= 0.4) confidence = 'low'
-  else confidence = 'none'
+  // confidence formula per build reference
+  const confidence = Math.max(shallowScore, deepScore) / (shallowScore + deepScore + 1)
 
   let workType: WorkType
-  if (confidence === 'none') {
+  if (confidence < 0.4) {
     workType = 'deep'
   } else {
     workType = deepScore >= shallowScore ? 'deep' : 'shallow'
   }
 
-  // Spec edge case: readings classified shallow BUT if estimated_mins > 45 → promote to deep
+  // Edge case: readings classified shallow BUT estimated_mins > 45 → promote to deep
   if (
     workType === 'shallow' &&
     typeof estimatedMins === 'number' &&
@@ -116,3 +111,9 @@ export function classifyTaskTitle(title: string, estimatedMins?: number): Classi
   }
 }
 
+/** Converts the raw confidence float to the UI label bucket. */
+export function confidenceLabel(confidence: number): 'high' | 'low' | 'none' {
+  if (confidence >= 0.75) return 'high'
+  if (confidence >= 0.4) return 'low'
+  return 'none'
+}

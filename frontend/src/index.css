@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 :root {
+  /* Rumbo design tokens — build reference */
+  --rumbo-navy: #1a1a2e;
+  --rumbo-purple: #6C63FF;
+  --rumbo-block-deep: #6C63FF;
+  --rumbo-block-shallow: #34D399;
+  --rumbo-radius: 10px;
+
   /* shadcn-style color tokens (RGB triplets) */
   --background: 255 255 255;
   --foreground: 26 26 46;
