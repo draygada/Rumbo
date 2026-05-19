@@ -75,7 +75,7 @@ export default function Onboarding() {
 
   async function handleComplete(e: FormEvent) {
     e.preventDefault()
-    if (!session) return
+    if (!session) { setError('Session expired — please sign in again.'); setSaving(false); return }
     setError(null)
     setSaving(true)
 
@@ -95,11 +95,18 @@ export default function Onboarding() {
 
       const { error: userError } = await supabase
         .from('users')
-        .update({ field_of_study: studyValue, onboarding_completed: true })
+        .update({
+          onboarding_q1: workerType,
+          onboarding_q2_before: unavailableBefore,
+          onboarding_q2_after: unavailableAfter,
+          field_of_study: studyValue,
+          onboarding_step: 'complete',
+          onboarding_completed: true,
+        })
         .eq('id', session.user.id)
       if (userError) throw userError
 
-      navigate('/dashboard')
+      window.location.replace('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {

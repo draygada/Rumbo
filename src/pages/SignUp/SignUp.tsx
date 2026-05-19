@@ -5,7 +5,7 @@ import styles from './SignUp.module.css'
 
 export default function SignUp() {
   const navigate = useNavigate()
-  const [username, setUsername] = useState('')
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -28,7 +28,7 @@ export default function SignUp() {
 
     setLoading(true)
     try {
-      await signUp(email, password, username)
+      await signUp(email, password, name)
       navigate('/onboarding')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign up failed')
@@ -45,15 +45,15 @@ export default function SignUp() {
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <div className={styles.field}>
-            <label htmlFor="username" className={styles.label}>Username</label>
+            <label htmlFor="name" className={styles.label}>Name</label>
             <input
-              id="username"
+              id="name"
               type="text"
               className={styles.input}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               required
-              autoComplete="username"
+              autoComplete="name"
             />
           </div>
 

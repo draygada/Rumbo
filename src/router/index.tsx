@@ -3,9 +3,11 @@ import { useAuth } from '../hooks/useAuth'
 import SignIn from '../pages/SignIn/SignIn'
 import SignUp from '../pages/SignUp/SignUp'
 import Onboarding from '../pages/Onboarding/Onboarding'
-
-// Placeholder pages — filled in later phases
-const DashboardPage = () => <div>Dashboard (Phase 3)</div>
+import DashboardLayout from '../pages/Dashboard/DashboardLayout'
+import Dashboard from '../pages/Dashboard/Dashboard'
+import Settings from '../pages/Settings/Settings'
+import Account from '../pages/Account/Account'
+import AddTask from '../pages/AddTask/AddTask'
 
 function PublicRoute() {
   const { session, profile, loading } = useAuth()
@@ -47,7 +49,15 @@ export const router = createBrowserRouter([
   {
     element: <OnboardedRoute />,
     children: [
-      { path: '/dashboard', element: <DashboardPage /> },
+      {
+        element: <DashboardLayout />,
+        children: [
+          { path: '/dashboard', element: <Dashboard /> },
+          { path: '/settings', element: <Settings /> },
+          { path: '/account', element: <Account /> },
+        ],
+      },
+      { path: '/add-task', element: <AddTask /> },
     ],
   },
   {

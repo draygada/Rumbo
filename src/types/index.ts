@@ -5,10 +5,14 @@ export type UserTier = 'free' | 'premium'
 export interface User {
   id: string
   email: string
-  username: string
-  field_of_study: string | null
+  name: string | null
   tier: UserTier
+  onboarding_step: string
   onboarding_completed: boolean
+  onboarding_q1: WorkerType | null
+  onboarding_q2_before: string | null
+  onboarding_q2_after: string | null
+  field_of_study: string | null
   created_at: string
 }
 
@@ -27,11 +31,15 @@ export interface Task {
   user_id: string
   title: string
   description: string | null
-  due_date: string            // ISO date
+  due_date: string            // ISO timestamp
   estimated_mins: number
-  task_type: TaskType
+  work_type: TaskType | null
+  classifier_confidence: number | null
+  shallow_score: number | null
+  deep_score: number | null
   user_overrode_classifier: boolean
   pdf_url: string | null
+  status: string
   created_at: string
 }
 

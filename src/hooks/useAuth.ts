@@ -61,7 +61,7 @@ export async function signIn(email: string, password: string) {
   if (error) throw error
 }
 
-export async function signUp(email: string, password: string, username: string) {
+export async function signUp(email: string, password: string, name: string) {
   const { data, error } = await supabase.auth.signUp({ email, password })
   if (error) throw error
   if (!data.user) throw new Error('Sign up failed')
@@ -69,9 +69,8 @@ export async function signUp(email: string, password: string, username: string) 
   const { error: profileError } = await supabase.from('users').insert({
     id: data.user.id,
     email,
-    username,
+    name,
     tier: 'free',
-    onboarding_completed: false,
   })
   if (profileError) throw profileError
 }

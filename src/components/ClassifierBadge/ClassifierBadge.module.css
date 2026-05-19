@@ -1,0 +1,27 @@
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.deep {
+  background: #e8f2f3;
+  color: var(--rumbo-teal);
+}
+
+.shallow {
+  background: #ede8f2;
+  color: var(--rumbo-plum);
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  opacity: 0.75;
+}
