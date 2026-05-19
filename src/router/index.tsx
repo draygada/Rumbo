@@ -2,9 +2,9 @@ import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import SignIn from '../pages/SignIn/SignIn'
 import SignUp from '../pages/SignUp/SignUp'
+import Onboarding from '../pages/Onboarding/Onboarding'
 
 // Placeholder pages — filled in later phases
-const OnboardingPage = () => <div>Onboarding (Phase 2)</div>
 const DashboardPage = () => <div>Dashboard (Phase 3)</div>
 
 function PublicRoute() {
@@ -41,7 +41,7 @@ export const router = createBrowserRouter([
   {
     element: <PrivateRoute />,
     children: [
-      { path: '/onboarding', element: <OnboardingPage /> },
+      { path: '/onboarding', element: <Onboarding /> },
     ],
   },
   {

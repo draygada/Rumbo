@@ -1,3 +1,41 @@
+/* Rumbo brand palette */
+:root {
+  --rumbo-blue: #7791c2;
+  --rumbo-green: #7791c2;
+  --rumbo-dark-green: #5b969c;
+  --rumbo-purple: #8a708a;
+
+  /* Aliases used across component styles */
+  --rumbo-teal: var(--rumbo-dark-green);
+  --rumbo-plum: var(--rumbo-purple);
+  --rumbo-lavender: var(--rumbo-purple);
+
+  --color-text: #2c2c2e;
+  --color-text-secondary: #5c5c66;
+  --color-text-muted: #8a8a96;
+  --color-bg-page: #f4f5f8;
+  --color-bg-surface: #ffffff;
+  --color-bg-muted: #eef0f5;
+  --color-bg-selected: #e8f2f3;
+  --color-border: #dde0e8;
+  --color-border-hover: #b8bcc8;
+  --color-primary: var(--rumbo-purple);
+  --color-primary-hover: #7a657a;
+  --color-accent: var(--rumbo-dark-green);
+  --color-focus: var(--rumbo-dark-green);
+  --color-link: var(--rumbo-purple);
+  --color-link-hover: #7a657a;
+  --color-error: #b85450;
+  --color-shadow: rgba(138, 112, 138, 0.12);
+
+  --gradient-brand: linear-gradient(
+    90deg,
+    var(--rumbo-blue),
+    var(--rumbo-dark-green),
+    var(--rumbo-purple)
+  );
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -8,6 +46,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color: var(--color-text);
+  background: var(--color-bg-page);
 }
 
 #root {

@@ -1,0 +1,294 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-page);
+}
+
+.container {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 40px;
+}
+
+/* Progress dots */
+.progress {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 36px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-border);
+  transition: background 0.15s;
+}
+
+.dotDone {
+  background: var(--rumbo-teal);
+}
+
+.dotActive {
+  background: var(--rumbo-plum);
+}
+
+/* Stage wrapper */
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-top: -12px;
+}
+
+/* Worker type cards */
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px;
+  background: var(--color-bg-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.card:hover {
+  border-color: var(--color-border-hover);
+}
+
+.cardSelected {
+  border-color: var(--rumbo-teal);
+  background: var(--color-bg-selected);
+}
+
+.cardLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.cardHours {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* Time pickers */
+.timeFields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.timeField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.timeInput {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+
+.timeInput:focus {
+  border-color: var(--color-focus);
+}
+
+/* Calendar options */
+.calendarOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.calendarButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 16px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-surface);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.comingSoon {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--rumbo-lavender);
+  background: var(--color-bg-muted);
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+/* Combobox */
+.comboboxWrap {
+  position: relative;
+}
+
+.input {
+  height: 40px;
+  width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  border-color: var(--color-focus);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--color-shadow);
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.dropdownItem {
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.dropdownItem:hover {
+  background: var(--color-bg-muted);
+}
+
+.dropdownItemOther {
+  border-top: 1px solid var(--color-border);
+  color: var(--rumbo-lavender);
+  font-weight: 500;
+}
+
+.otherField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Buttons */
+.button {
+  height: 40px;
+  background: var(--color-primary);
+  color: var(--color-bg-surface);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  padding: 0 20px;
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.buttonSecondary {
+  height: 40px;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  padding: 0 20px;
+}
+
+.buttonSecondary:hover {
+  background: var(--color-bg-muted);
+  border-color: var(--color-border-hover);
+}
+
+.buttonLink {
+  height: 40px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.buttonLink:hover {
+  color: var(--color-link);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.error {
+  font-size: 13px;
+  color: var(--color-error);
+}
