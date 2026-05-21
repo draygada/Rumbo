@@ -4,10 +4,14 @@ import styles from './DashboardLayout.module.css'
 
 export default function DashboardLayout() {
   return (
-    <div className={styles.layout}>
-      <Sidebar />
+    <div className={styles.shell}>
+      <div className={styles.sidebarCol}>
+        <Sidebar />
+      </div>
       <main className={styles.main}>
-        <Outlet />
+        <div className={styles.mainInner}>
+          <Outlet />
+        </div>
       </main>
     </div>
   )

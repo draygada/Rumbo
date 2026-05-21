@@ -1,0 +1,35 @@
+.logo {
+  display: block;
+  height: auto;
+}
+
+.sidebar {
+  display: block;
+  width: 100%;
+  max-width: 130px;
+  max-height: 36px;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.auth {
+  display: block;
+  width: auto;
+  max-width: 220px;
+  max-height: 48px;
+  margin: 0 auto 12px;
+  object-fit: contain;
+  object-position: center;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    max-width: 100px;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth {
+    max-width: 160px;
+  }
+}

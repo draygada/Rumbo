@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { getInitials } from '../../lib/initials'
+import RumboLogo from '../RumboLogo/RumboLogo'
 import styles from './Sidebar.module.css'
 
 export default function Sidebar() {
@@ -10,11 +11,12 @@ export default function Sidebar() {
 
   return (
     <aside className={styles.sidebar}>
-      <NavLink to="/dashboard" className={styles.logo}>
-        <img src="/logo.png" alt="Rumbo" className={styles.logoImage} />
-      </NavLink>
+      <div className={styles.upper}>
+        <NavLink to="/dashboard" className={styles.logo}>
+          <RumboLogo variant="sidebar" />
+        </NavLink>
 
-      <nav className={styles.nav}>
+        <nav className={styles.nav}>
         <NavLink
           to="/dashboard"
           className={({ isActive }) => [styles.navLink, isActive ? styles.navLinkActive : ''].join(' ')}
@@ -34,6 +36,7 @@ export default function Sidebar() {
           Account
         </NavLink>
       </nav>
+      </div>
 
       <div className={styles.user}>
         <div className={styles.avatar}>{initials}</div>

@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { signIn } from '../../hooks/useAuth'
+import RumboLogo from '../../components/RumboLogo/RumboLogo'
 import styles from './SignIn.module.css'
 
 export default function SignIn() {
@@ -27,7 +28,7 @@ export default function SignIn() {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <h1 className={styles.title}>Rumbo</h1>
+        <RumboLogo variant="auth" />
         <p className={styles.subtitle}>Sign in to your account</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>

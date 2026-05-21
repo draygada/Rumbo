@@ -13,9 +13,11 @@ function formatMins(mins: number): string {
   return `${mins / 60} hrs`
 }
 
-function formatDate(isoDate: string): string {
+function formatDue(isoDate: string): string {
   const date = new Date(isoDate)
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${dateStr} at ${timeStr}`
 }
 
 export default function TaskCard({ task }: Props) {
@@ -26,7 +28,7 @@ export default function TaskCard({ task }: Props) {
         {task.work_type && <ClassifierBadge type={task.work_type} />}
       </div>
       <div className={styles.meta}>
-        <span className={styles.metaItem}>Due {formatDate(task.due_date)}</span>
+        <span className={styles.metaItem}>Due {formatDue(task.due_date)}</span>
         <span className={styles.dot}>·</span>
         <span className={styles.metaItem}>{formatMins(task.estimated_mins)}</span>
       </div>

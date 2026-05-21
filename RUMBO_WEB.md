@@ -313,10 +313,10 @@ const DEEP_KEYWORDS = [
 // 0.4–0.75 → show badge, lower confidence
 // < 0.4 → default deep, show badge
 
-// Edge case: reading classified shallow BUT estimated_mins > 45 → promote to deep
+// Title only — does not use estimated time, due date, or other fields
 ```
 
-Fires on title input with 3 second debounce.
+Fires on title input (no debounce in current web build).
 Result displayed as a small badge on the title field.
 Student can click badge to toggle deep ↔ shallow (sets user_overrode_classifier = true).
 
@@ -398,7 +398,7 @@ The abstraction exists so desktop can swap to Tauri secure store without touchin
 - [ ] Account page — tier, sign out
 
 ### Phase 4 — add task + classifier
-- [ ] `/add-task` full page route
+- [ ] `/add-task` containing sidebar
 - [ ] All form fields
 - [ ] Classifier in `src/lib/classifier.ts`
 - [ ] 3 second debounce on title input

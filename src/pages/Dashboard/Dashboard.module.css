@@ -3,11 +3,26 @@
   max-width: 720px;
 }
 
+@media (max-width: 1024px) {
+  .page {
+    padding: 32px 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 24px 20px;
+    max-width: 100%;
+  }
+}
+
 .header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 40px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .title {

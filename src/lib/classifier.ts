@@ -24,18 +24,13 @@ export interface ClassifierResult {
   deepScore: number
 }
 
-export function classify(title: string, estimatedMins?: number): ClassifierResult {
+/** Classifies work type from the task title only (keyword matching). */
+export function classify(title: string): ClassifierResult {
   const shallowScore = countMatches(title, SHALLOW_KEYWORDS)
   const deepScore = countMatches(title, DEEP_KEYWORDS)
 
   const confidence = Math.max(shallowScore, deepScore) / (shallowScore + deepScore + 1)
-
-  let type: TaskType = deepScore >= shallowScore ? 'deep' : 'shallow'
-
-  // Edge case: reading classified shallow but long task → promote to deep
-  if (type === 'shallow' && estimatedMins !== undefined && estimatedMins > 45) {
-    type = 'deep'
-  }
+  const type: TaskType = deepScore >= shallowScore ? 'deep' : 'shallow'
 
   return { type, confidence, shallowScore, deepScore }
 }

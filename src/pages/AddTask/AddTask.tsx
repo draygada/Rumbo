@@ -3,19 +3,17 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { classify } from '../../lib/classifier'
-import ClassifierBadge from '../../components/ClassifierBadge/ClassifierBadge'
+import TaskClassifierRow from '../../components/TaskClassifierRow/TaskClassifierRow'
 import { TaskType } from '../../types'
 import styles from './AddTask.module.css'
 
 const ESTIMATED_MINS_OPTIONS = [
   { label: '15 min', value: 15 },
   { label: '30 min', value: 30 },
-  { label: '45 min', value: 45 },
   { label: '1 hour', value: 60 },
-  { label: '1.5 hours', value: 90 },
   { label: '2 hours', value: 120 },
-  { label: '3+ hours', value: 180 },
 ]
+
 
 export default function AddTask() {
   const { session, profile } = useAuth()
@@ -24,6 +22,7 @@ export default function AddTask() {
 
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [dueTime, setDueTime] = useState('23:59')
   const [estimatedMins, setEstimatedMins] = useState<number>(60)
   const [description, setDescription] = useState('')
   const [workType, setWorkType] = useState<TaskType>('deep')
@@ -31,27 +30,87 @@ export default function AddTask() {
   const [classifierResult, setClassifierResult] = useState<ReturnType<typeof classify> | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [estimatedIsOther, setEstimatedIsOther] = useState(false)
+  const [customHours, setCustomHours] = useState('')
+  const [showEstimatedDropdown, setShowEstimatedDropdown] = useState(false)
+  const estimatedDropdownRef = useRef<HTMLDivElement>(null)
+  const customHoursInputRef = useRef<HTMLInputElement>(null)
+  const prevTitleRef = useRef(title)
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const customHoursNum = parseFloat(customHours)
+  const estimatedValid =
+    !estimatedIsOther || (!Number.isNaN(customHoursNum) && customHoursNum > 2)
 
-  // Run classifier 3s after the user stops typing
+  const selectedPresetLabel =
+    ESTIMATED_MINS_OPTIONS.find(opt => opt.value === estimatedMins)?.label ?? ''
+
   useEffect(() => {
-    if (!title.trim()) {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        estimatedDropdownRef.current &&
+        !estimatedDropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowEstimatedDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    if (estimatedIsOther && !showEstimatedDropdown) {
+      customHoursInputRef.current?.focus()
+    }
+  }, [estimatedIsOther, showEstimatedDropdown])
+
+  useEffect(() => {
+    const trimmed = title.trim()
+    const titleChanged = prevTitleRef.current !== title
+    prevTitleRef.current = title
+
+    if (!trimmed) {
       setClassifierResult(null)
       return
     }
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      const result = classify(title, estimatedMins)
-      setClassifierResult(result)
-      if (!userOverrode) setWorkType(result.type)
-    }, 3000)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [title, estimatedMins, userOverrode])
 
-  function handleBadgeToggle() {
-    setWorkType(prev => prev === 'deep' ? 'shallow' : 'deep')
+    const result = classify(trimmed)
+    setClassifierResult(result)
+
+    // Title edit always re-runs classifier and clears a manual override
+    if (titleChanged) {
+      setUserOverrode(false)
+      setWorkType(result.type)
+    } else if (!userOverrode) {
+      setWorkType(result.type)
+    }
+  }, [title, userOverrode])
+
+  function handleToggleWorkType() {
+    setWorkType(prev => (prev === 'deep' ? 'shallow' : 'deep'))
     setUserOverrode(true)
+  }
+
+  function handleCustomHoursChange(value: string) {
+    const sanitized = value.replace(/[^\d.]/g, '')
+    setCustomHours(sanitized)
+    const hours = parseFloat(sanitized)
+    if (!Number.isNaN(hours) && hours > 0) {
+      setEstimatedMins(Math.round(hours * 60))
+    }
+  }
+
+  function handleSelectOther(e: React.MouseEvent) {
+    e.preventDefault()
+    setEstimatedIsOther(true)
+    setCustomHours('')
+    setShowEstimatedDropdown(false)
+  }
+
+  function handleSelectPreset(value: number) {
+    setEstimatedIsOther(false)
+    setCustomHours('')
+    setEstimatedMins(value)
+    setShowEstimatedDropdown(false)
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -64,7 +123,7 @@ export default function AddTask() {
       const { error: insertError } = await supabase.from('tasks').insert({
         user_id: session.user.id,
         title: title.trim(),
-        due_date: new Date(dueDate + 'T23:59:00').toISOString(),
+        due_date: new Date(`${dueDate}T${dueTime}:00`).toISOString(),
         estimated_mins: estimatedMins,
         work_type: workType,
         user_overrode_classifier: userOverrode,
@@ -95,58 +154,154 @@ export default function AddTask() {
         <form onSubmit={handleSubmit} className={styles.form}>
           {/* Task name */}
           <div className={styles.field}>
-            <div className={styles.labelRow}>
-              <label htmlFor="title" className={styles.label}>Task name</label>
-              {classifierResult && (
-                <ClassifierBadge type={workType} onClick={handleBadgeToggle} />
-              )}
-            </div>
+            <label htmlFor="title" className={styles.label}>Task name</label>
             <input
               id="title"
               type="text"
               className={styles.input}
               placeholder="e.g. Write essay on climate policy"
               value={title}
-              onChange={e => { setTitle(e.target.value); setUserOverrode(false) }}
+              onChange={e => setTitle(e.target.value)}
               required
               autoComplete="off"
               autoFocus
             />
-            {classifierResult && (
-              <p className={styles.classifierHint}>
-                {userOverrode ? 'Manually set — click badge to toggle' : 'Classified automatically — click badge to override'}
-              </p>
+            {title.trim() && (
+              <TaskClassifierRow
+                workType={workType}
+                userOverrode={userOverrode}
+                onToggle={handleToggleWorkType}
+              />
             )}
           </div>
 
-          {/* Due date */}
+          {/* Due date & time */}
           <div className={styles.field}>
-            <label htmlFor="due-date" className={styles.label}>Due date</label>
-            <input
-              id="due-date"
-              type="date"
-              className={styles.input}
-              value={dueDate}
-              min={new Date().toISOString().slice(0, 10)}
-              onChange={e => setDueDate(e.target.value)}
-              required
-            />
+            <span className={styles.label}>Due date & time</span>
+            <div className={styles.dateTimeRow}>
+              <input
+                id="due-date"
+                type="date"
+                className={styles.input}
+                value={dueDate}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={e => setDueDate(e.target.value)}
+                required
+                aria-label="Due date"
+              />
+              <input
+                id="due-time"
+                type="time"
+                className={styles.input}
+                value={dueTime}
+                onChange={e => setDueTime(e.target.value)}
+                required
+                aria-label="Due time"
+              />
+            </div>
           </div>
 
           {/* Estimated time */}
           <div className={styles.field}>
-            <label htmlFor="estimated-mins" className={styles.label}>Estimated time</label>
-            <select
-              id="estimated-mins"
-              className={styles.select}
-              value={estimatedMins}
-              onChange={e => setEstimatedMins(Number(e.target.value))}
-              required
-            >
-              {ESTIMATED_MINS_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            <span className={styles.label} id="estimated-mins-label">Estimated time</span>
+            <div className={styles.selectWrap} ref={estimatedDropdownRef}>
+              <div className={styles.selectTrigger}>
+                {estimatedIsOther ? (
+                  <div className={styles.triggerOther}>
+                    <input
+                      ref={customHoursInputRef}
+                      id="estimated-mins"
+                      type="text"
+                      inputMode="decimal"
+                      className={styles.triggerInput}
+                      placeholder="e.g. 4"
+                      value={customHours}
+                      onChange={e => handleCustomHoursChange(e.target.value)}
+                      aria-label="Custom hours"
+                    />
+                    <span className={styles.customHoursSuffix}>hours</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.triggerLabel}
+                    aria-labelledby="estimated-mins-label"
+                    aria-expanded={showEstimatedDropdown}
+                    aria-haspopup="listbox"
+                    aria-controls={showEstimatedDropdown ? 'estimated-mins-listbox' : undefined}
+                    onClick={() => setShowEstimatedDropdown(prev => !prev)}
+                  >
+                    {selectedPresetLabel}
+                  </button>
+                )}
+                {estimatedIsOther && (
+                  <button
+                    type="button"
+                    className={styles.selectChevronBtn}
+                    aria-label="Open estimated time options"
+                    aria-expanded={showEstimatedDropdown}
+                    aria-haspopup="listbox"
+                    aria-controls={showEstimatedDropdown ? 'estimated-mins-listbox' : undefined}
+                    onClick={() => setShowEstimatedDropdown(prev => !prev)}
+                  >
+                    <svg
+                      className={styles.selectChevronIcon}
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M4 6l4 4 4-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {showEstimatedDropdown && (
+                <ul
+                  id="estimated-mins-listbox"
+                  className={styles.dropdown}
+                  role="listbox"
+                  aria-labelledby="estimated-mins-label"
+                >
+                  {ESTIMATED_MINS_OPTIONS.map(opt => (
+                    <li
+                      key={opt.value}
+                      role="option"
+                      aria-selected={!estimatedIsOther && estimatedMins === opt.value}
+                      className={[
+                        styles.dropdownItem,
+                        !estimatedIsOther && estimatedMins === opt.value
+                          ? styles.dropdownItemSelected
+                          : '',
+                      ].filter(Boolean).join(' ')}
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        handleSelectPreset(opt.value)
+                      }}
+                    >
+                      {opt.label}
+                    </li>
+                  ))}
+                  <li
+                    role="option"
+                    aria-selected={estimatedIsOther}
+                    className={[
+                      styles.dropdownItem,
+                      styles.dropdownItemOther,
+                      estimatedIsOther ? styles.dropdownItemSelected : '',
+                    ].filter(Boolean).join(' ')}
+                    onMouseDown={handleSelectOther}
+                  >
+                    Other
+                  </li>
+                </ul>
+              )}
+            </div>
           </div>
 
           {/* Description — premium only */}
@@ -188,7 +343,11 @@ export default function AddTask() {
 
           {error && <p className={styles.error}>{error}</p>}
 
-          <button type="submit" className={styles.button} disabled={saving || !title.trim() || !dueDate}>
+          <button
+            type="submit"
+            className={styles.button}
+            disabled={saving || !title.trim() || !dueDate || !estimatedValid}
+          >
             {saving ? 'Saving...' : 'Add Task'}
           </button>
         </form>

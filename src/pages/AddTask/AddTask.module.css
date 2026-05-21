@@ -1,14 +1,28 @@
 .page {
-  min-height: 100vh;
-  background: var(--color-bg-page);
+  padding: 40px 48px 80px;
+  box-sizing: border-box;
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  padding: 48px 24px;
 }
 
 .container {
   width: 100%;
   max-width: 560px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1024px) {
+  .page {
+    padding: 32px 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 24px 20px;
+  }
 }
 
 .back {
@@ -72,22 +86,145 @@
   border-color: var(--color-focus);
 }
 
-.select {
-  height: 42px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--color-text);
-  background: var(--color-bg-surface);
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.15s;
-  width: 100%;
+.dateTimeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-.select:focus {
+.selectWrap {
+  position: relative;
+}
+
+.selectTrigger {
+  height: 42px;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-surface);
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.selectTrigger:focus-within {
   border-color: var(--color-focus);
+}
+
+.triggerLabel {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--color-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.triggerOther {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.triggerInput {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--color-text);
+  background: transparent;
+  font-family: inherit;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.triggerInput::-webkit-outer-spin-button,
+.triggerInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.selectChevronBtn {
+  flex-shrink: 0;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-left: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, background 0.15s;
+}
+
+.selectChevronIcon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.selectChevronBtn:hover {
+  color: var(--color-text);
+  background: var(--color-bg-muted);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px var(--color-shadow);
+  list-style: none;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.dropdownItem {
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.dropdownItem:hover {
+  background: var(--color-bg-muted);
+}
+
+.dropdownItemSelected {
+  background: var(--color-bg-selected);
+  font-weight: 500;
+}
+
+.dropdownItemSelected:hover {
+  background: var(--color-bg-selected);
+}
+
+.dropdownItemOther {
+  border-top: 1px solid var(--color-border);
+  color: var(--rumbo-lavender);
+  font-weight: 500;
+}
+
+.customHoursSuffix {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
 }
 
 .classifierHint {

@@ -55,9 +55,9 @@ export const router = createBrowserRouter([
           { path: '/dashboard', element: <Dashboard /> },
           { path: '/settings', element: <Settings /> },
           { path: '/account', element: <Account /> },
+          { path: '/add-task', element: <AddTask /> },
         ],
       },
-      { path: '/add-task', element: <AddTask /> },
     ],
   },
   {
