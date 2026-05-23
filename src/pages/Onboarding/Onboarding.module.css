@@ -241,13 +241,15 @@
 .button {
   height: 40px;
   background: var(--color-primary);
-  color: var(--color-bg-surface);
+  color: var(--color-on-primary);
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
   padding: 0 20px;
 }
 

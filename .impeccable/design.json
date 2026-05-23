@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-23T00:00:00.000Z",
+  "title": "Design System: Rumbo",
+  "extensions": {
+    "colorMeta": {
+      "page-canvas": {
+        "role": "neutral",
+        "displayName": "Page Canvas",
+        "canonical": "oklch(96.5% 0.008 270)",
+        "tonalRamp": [
+          "oklch(20% 0.01 270)",
+          "oklch(30% 0.01 270)",
+          "oklch(40% 0.01 270)",
+          "oklch(50% 0.01 270)",
+          "oklch(60% 0.01 270)",
+          "oklch(75% 0.008 270)",
+          "oklch(88% 0.008 270)",
+          "oklch(96.5% 0.008 270)"
+        ]
+      },
+      "accent-plum": {
+        "role": "primary",
+        "displayName": "Dusted Plum",
+        "canonical": "oklch(58% 0.04 320)",
+        "tonalRamp": [
+          "oklch(22% 0.03 320)",
+          "oklch(30% 0.035 320)",
+          "oklch(38% 0.04 320)",
+          "oklch(46% 0.04 320)",
+          "oklch(52% 0.04 320)",
+          "oklch(58% 0.04 320)",
+          "oklch(72% 0.03 320)",
+          "oklch(92% 0.015 320)"
+        ]
+      },
+      "accent-teal": {
+        "role": "secondary",
+        "displayName": "Soft Teal",
+        "canonical": "oklch(62% 0.06 195)",
+        "tonalRamp": [
+          "oklch(25% 0.04 195)",
+          "oklch(32% 0.05 195)",
+          "oklch(40% 0.055 195)",
+          "oklch(48% 0.06 195)",
+          "oklch(55% 0.06 195)",
+          "oklch(62% 0.06 195)",
+          "oklch(75% 0.04 195)",
+          "oklch(93% 0.02 195)"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Ink Primary",
+        "canonical": "oklch(28% 0.005 270)",
+        "tonalRamp": [
+          "oklch(15% 0.005 270)",
+          "oklch(20% 0.005 270)",
+          "oklch(25% 0.005 270)",
+          "oklch(28% 0.005 270)",
+          "oklch(40% 0.005 270)",
+          "oklch(55% 0.005 270)",
+          "oklch(70% 0.005 270)",
+          "oklch(90% 0.005 270)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles on dashboard and add-task."
+      },
+      "section-label": {
+        "displayName": "Section Label",
+        "purpose": "Uppercase group headers for task lists."
+      }
+    },
+    "shadows": [
+      {
+        "name": "dropdown-lift",
+        "value": "0 4px 12px rgba(138, 112, 138, 0.12)",
+        "purpose": "Floating combobox and picker menus only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "ease-out",
+        "purpose": "Default 150ms transitions on color and border."
+      }
+    ],
+    "breakpoints": [
+      { "name": "lg", "value": "1024px" },
+      { "name": "md", "value": "768px" },
+      { "name": "sm", "value": "480px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main CTA on dashboard and forms.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">+ Add Task</button>",
+      "css": ".ds-btn-primary { display: inline-block; height: 36px; line-height: 36px; padding: 0 16px; background: #8a708a; color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; cursor: pointer; transition: background 0.15s ease-out; } .ds-btn-primary:hover { background: #7a657a; } .ds-btn-primary:focus-visible { outline: 2px solid #5b969c; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Standard single-line field on auth and add-task.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-label\">Task name</span><input class=\"ds-input\" type=\"text\" placeholder=\"e.g. Problem set 4\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 6px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-label { font-size: 13px; font-weight: 500; color: #2c2c2e; } .ds-input { height: 40px; padding: 0 12px; border: 1px solid #dde0e8; border-radius: 8px; font-size: 14px; color: #2c2c2e; background: #fff; outline: none; transition: border-color 0.15s ease-out; } .ds-input:focus { border-color: #5b969c; } .ds-input:focus-visible { outline: 2px solid #5b969c; outline-offset: 1px; }"
+    },
+    {
+      "name": "Sidebar Nav Link",
+      "kind": "nav",
+      "refersTo": "nav-link-active",
+      "description": "Dashboard sidebar navigation item.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-nav-link-active\" href=\"#\">Tasks</a><a class=\"ds-nav-link\" href=\"#\">Settings</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-nav-link { display: block; padding: 8px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; color: #5c5c66; text-decoration: none; transition: background 0.15s ease-out, color 0.15s ease-out; } .ds-nav-link:hover { background: #eef0f5; color: #2c2c2e; } .ds-nav-link-active { background: #eef0f5; color: #2c2c2e; }"
+    },
+    {
+      "name": "Deep Classifier Badge",
+      "kind": "chip",
+      "refersTo": "badge-deep",
+      "description": "Deep work label on task cards and add-task.",
+      "html": "<span class=\"ds-badge ds-badge-deep\">Deep</span>",
+      "css": ".ds-badge { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-badge-deep { background: #e8f2f3; color: #5b969c; }"
+    },
+    {
+      "name": "Task Card",
+      "kind": "card",
+      "refersTo": "card-task",
+      "description": "Single task row on the dashboard list.",
+      "html": "<article class=\"ds-task-card\"><div class=\"ds-task-top\"><span class=\"ds-task-title\">Read chapter 7</span><span class=\"ds-badge ds-badge-deep\">Deep</span></div><div class=\"ds-task-meta\"><span>Today</span><span>·</span><span>45 min</span></div></article>",
+      "css": ".ds-task-card { background: #fff; border: 1px solid #dde0e8; border-radius: 10px; padding: 14px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; transition: border-color 0.15s ease-out; } .ds-task-card:hover { border-color: #b8bcc8; } .ds-task-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; } .ds-task-title { font-size: 14px; font-weight: 500; color: #2c2c2e; } .ds-badge { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; } .ds-badge-deep { background: #e8f2f3; color: #5b969c; } .ds-task-meta { margin-top: 8px; font-size: 12px; color: #8a8a96; display: flex; gap: 6px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Capture",
+    "overview": "Rumbo's interface should feel like a calm desk in a library: enough structure to trust, never enough noise to compete with the task in front of you. The visual system serves quick capture first; chrome stays soft, familiar, and native (Things-like polish on a system font stack). Surfaces are light, airy, and grouped with tonal contrast rather than heavy shadows.",
+    "keyCharacteristics": [
+      "Restrained palette: cool gray canvas, white surfaces, plum primary actions, teal for focus and deep-work signals",
+      "System sans typography with a tight 1.125–1.2 scale ratio",
+      "Flat-by-default elevation; borders and background tints carry hierarchy",
+      "8px corner radius on controls; 10–12px on cards and auth panels",
+      "Responsive shell: fixed sidebar on desktop, compact top bar on tablet/mobile",
+      "150ms state transitions; no decorative motion"
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "Plum is the only saturated accent on primary actions. Teal appears for focus, deep-work semantics, and selection tints, never as a second CTA color on the same view.",
+        "section": "colors"
+      },
+      {
+        "name": "The Flat Ground Rule",
+        "body": "Page canvas and surface white carry most of the screen. Accent tints stay in badges, buttons, and focus states, not full-bleed panels.",
+        "section": "colors"
+      },
+      {
+        "name": "The System Stack Rule",
+        "body": "Do not introduce a second webfont for product screens unless accessibility requires it. Familiarity beats novelty.",
+        "section": "typography"
+      },
+      {
+        "name": "The Border-Not-Glow Rule",
+        "body": "Inputs gain focus through a teal border shift, not outer glows or ring stacks.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep one primary plum CTA per view; secondary actions as text links or muted controls.",
+      "Do use uppercase 12px section labels with letter-spacing for task groups, not heavy dividers.",
+      "Do respect prefers-reduced-motion when adding transitions (150ms max, ease-out only).",
+      "Do collapse the sidebar to a compact top bar at 768px and tighten page padding at breakpoints.",
+      "Do use teal focus borders and plum primary buttons so state and action colors stay distinct."
+    ],
+    "donts": [
+      "Don't build busy SaaS dashboards: dense widgets, hero metrics, gradient accents, identical feature-card grids.",
+      "Don't use gamified productivity patterns: streaks, badges, confetti, guilt copy.",
+      "Don't use clinical institutional styling or childish ADHD-app mascots and loud primaries.",
+      "Don't add colored left-border stripes on cards or list items.",
+      "Don't use gradient text, glassmorphism cards, or decorative motion that does not convey state.",
+      "Don't open modals when inline or full-page flows suffice."
+    ]
+  }
+}

@@ -4,6 +4,7 @@ import styles from './TaskCard.module.css'
 
 interface Props {
   task: Task
+  overdue?: boolean
 }
 
 function formatMins(mins: number): string {
@@ -20,9 +21,9 @@ function formatDue(isoDate: string): string {
   return `${dateStr} at ${timeStr}`
 }
 
-export default function TaskCard({ task }: Props) {
+export default function TaskCard({ task, overdue = false }: Props) {
   return (
-    <div className={styles.card}>
+    <div className={overdue ? `${styles.card} ${styles.cardOverdue}` : styles.card}>
       <div className={styles.top}>
         <span className={styles.title}>{task.title}</span>
         {task.work_type && <ClassifierBadge type={task.work_type} />}

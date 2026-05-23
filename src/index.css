@@ -1,24 +1,26 @@
-/* Rumbo brand palette */
+/* Rumbo design tokens — see DESIGN.md */
 :root {
+  /* Brand accents */
   --rumbo-blue: #7791c2;
-  --rumbo-green: #7791c2;
   --rumbo-dark-green: #5b969c;
   --rumbo-purple: #8a708a;
-
-  /* Aliases used across component styles */
   --rumbo-teal: var(--rumbo-dark-green);
   --rumbo-plum: var(--rumbo-purple);
   --rumbo-lavender: var(--rumbo-purple);
 
-  --color-text: #2c2c2e;
-  --color-text-secondary: #5c5c66;
-  --color-text-muted: #8a8a96;
-  --color-bg-page: #f4f5f8;
-  --color-bg-surface: #ffffff;
-  --color-bg-muted: #eef0f5;
-  --color-bg-selected: #e8f2f3;
-  --color-border: #dde0e8;
-  --color-border-hover: #b8bcc8;
+  /* Tinted neutrals (plum hue ~320) — no pure #000 / #fff */
+  --color-text: #2b2a2e;
+  --color-text-secondary: #5a5866;
+  --color-text-muted: #888592;
+  --color-bg-page: #f4f3f6;
+  --color-bg-surface: #fcfbfd;
+  --color-bg-sidebar: #faf9fc;
+  --color-bg-muted: #eeedf2;
+  --color-bg-selected: #e7f1f2;
+  --color-border: #dbd9e2;
+  --color-border-hover: #b6b4c0;
+  --color-on-primary: #fcfbfd;
+
   --color-primary: var(--rumbo-purple);
   --color-primary-hover: #7a657a;
   --color-accent: var(--rumbo-dark-green);
@@ -26,7 +28,43 @@
   --color-link: var(--rumbo-purple);
   --color-link-hover: #7a657a;
   --color-error: #b85450;
+  --color-error-bg: #faf4f4;
   --color-shadow: rgba(138, 112, 138, 0.12);
+
+  --badge-deep-bg: #e7f1f2;
+  --badge-shallow-bg: #ece8f0;
+  --premium-badge-bg: #ece8f0;
+
+  /* Typography scale (1.2 ratio) */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, Oxygen, sans-serif;
+  --text-headline: 1.5rem;
+  --text-title: 1.375rem;
+  --text-body: 0.875rem;
+  --text-label: 0.8125rem;
+  --text-caption: 0.75rem;
+  --text-badge: 0.6875rem;
+
+  /* Spacing */
+  --space-xs: 6px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --space-3xl: 40px;
+  --page-padding-desktop: 40px 48px;
+  --page-padding-tablet: 32px;
+  --page-padding-mobile: 24px 20px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --duration-fast: 150ms;
 
   --gradient-brand: linear-gradient(
     90deg,
@@ -36,14 +74,32 @@
   );
 }
 
-*, *::before, *::after {
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  font-family: var(--font-family);
+  font-size: var(--text-body);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--color-text);
@@ -52,4 +108,36 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+input:focus:not(:focus-visible),
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }

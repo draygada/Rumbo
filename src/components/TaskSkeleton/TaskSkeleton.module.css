@@ -1,0 +1,51 @@
+.card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.title,
+.badge,
+.meta {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+  animation: skeleton-pulse 1.4s var(--ease-out) infinite;
+}
+
+.title {
+  flex: 1;
+  height: 14px;
+  max-width: 220px;
+}
+
+.badge {
+  width: 48px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.meta {
+  width: 140px;
+  height: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title,
+  .badge,
+  .meta {
+    animation: none;
+    opacity: 0.6;
+  }
+}

@@ -4,7 +4,7 @@
   align-items: center;
   justify-content: center;
   background: var(--color-bg-page);
-  padding: 24px 16px;
+  padding: var(--space-xl) var(--space-lg);
 }
 
 .card {
@@ -12,21 +12,21 @@
   max-width: 400px;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 40px;
+  border-radius: var(--radius-xl);
+  padding: var(--space-3xl);
 }
 
 @media (max-width: 480px) {
   .card {
-    padding: 28px 24px;
-    border-radius: 10px;
+    padding: 28px var(--space-xl);
+    border-radius: var(--radius-lg);
   }
 }
 
 .subtitle {
-  font-size: 14px;
+  font-size: var(--text-body);
   color: var(--color-text-secondary);
-  margin-bottom: 32px;
+  margin-bottom: var(--space-2xl);
   text-align: center;
 }
 
@@ -39,24 +39,25 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-xs);
 }
 
 .label {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 500;
   color: var(--color-text);
 }
 
 .input {
   height: 40px;
-  padding: 0 12px;
+  padding: 0 var(--space-md);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
   color: var(--color-text);
+  background: var(--color-bg-surface);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 .input:focus {
@@ -64,20 +65,22 @@
 }
 
 .error {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--color-error);
 }
 
 .button {
   height: 40px;
   background: var(--color-primary);
-  color: var(--color-bg-surface);
+  color: var(--color-on-primary);
   border: none;
-  border-radius: 8px;
-  font-size: 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
 .button:disabled {
@@ -90,8 +93,8 @@
 }
 
 .footer {
-  margin-top: 24px;
-  font-size: 13px;
+  margin-top: var(--space-xl);
+  font-size: var(--text-label);
   color: var(--color-text-secondary);
   text-align: center;
 }

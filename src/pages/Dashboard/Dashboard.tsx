@@ -1,10 +1,9 @@
 import { Link } from 'react-router-dom'
 import { useTasks } from '../../hooks/useTasks'
 import TaskCard from '../../components/TaskCard/TaskCard'
+import TaskSkeleton from '../../components/TaskSkeleton/TaskSkeleton'
 import { Task } from '../../types'
 import styles from './Dashboard.module.css'
-
-const TODAY = new Date().toISOString().slice(0, 10)
 
 const TODAY_LABEL = new Date().toLocaleDateString('en-US', {
   weekday: 'long',
@@ -12,45 +11,76 @@ const TODAY_LABEL = new Date().toLocaleDateString('en-US', {
   day: 'numeric',
 })
 
+function localDateKey(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const TODAY = localDateKey(new Date())
+
 function groupTasks(tasks: Task[]) {
+  const overdue: Task[] = []
   const today: Task[] = []
   const upcoming: Task[] = []
   for (const task of tasks) {
-    const taskDate = task.due_date.slice(0, 10)
-    if (taskDate === TODAY) {
+    const taskDate = localDateKey(new Date(task.due_date))
+    if (taskDate < TODAY) {
+      overdue.push(task)
+    } else if (taskDate === TODAY) {
       today.push(task)
-    } else if (taskDate > TODAY) {
+    } else {
       upcoming.push(task)
     }
   }
-  return { today, upcoming }
+  return { overdue, today, upcoming }
 }
 
 export default function Dashboard() {
   const { data: tasks, isLoading, isError } = useTasks()
 
-  const { today, upcoming } = groupTasks(tasks ?? [])
+  const { overdue, today, upcoming } = groupTasks(tasks ?? [])
   const isEmpty = !isLoading && (tasks ?? []).length === 0
 
   return (
     <div className={styles.page}>
-      <div className={styles.header}>
-        <div>
-          <h1 className={styles.title}>Tasks</h1>
-          <p className={styles.date}>{TODAY_LABEL}</p>
+      <header className={styles.toolbar}>
+        <div className={styles.toolbarInner}>
+          <div className={styles.heading}>
+            <h1 className={styles.title}>Tasks</h1>
+            <p className={styles.date}>{TODAY_LABEL}</p>
+          </div>
+          <Link to="/add-task" className={styles.addButton}>
+            + Add Task
+          </Link>
         </div>
-        <Link to="/add-task" className={styles.addButton}>
-          + Add Task
-        </Link>
-      </div>
+      </header>
 
-      {isLoading && <p className={styles.status}>Loading tasks...</p>}
-      {isError && <p className={styles.error}>Failed to load tasks.</p>}
+      <div className={styles.content}>
+      {isLoading && (
+        <div className={styles.list} aria-busy="true" aria-label="Loading tasks">
+          <TaskSkeleton />
+          <TaskSkeleton />
+          <TaskSkeleton />
+        </div>
+      )}
+
+      {isError && (
+        <p className={styles.error} role="alert">
+          Could not load tasks. Check your connection and try again.
+        </p>
+      )}
 
       {isEmpty && (
         <div className={styles.empty}>
-          <p className={styles.emptyTitle}>No tasks yet</p>
-          <p className={styles.emptySubtitle}>Add your first task to get started.</p>
+          <p className={styles.emptyTitle}>Nothing scheduled yet</p>
+          <p className={styles.emptySubtitle}>
+            Add a task and Rumbo will place it on your calendar.
+          </p>
+          <Link to="/add-task" className={styles.emptyButton}>
+            Add task
+          </Link>
         </div>
       )}
 
@@ -71,6 +101,16 @@ export default function Dashboard() {
           </div>
         </section>
       )}
+
+      {!isLoading && overdue.length > 0 && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Overdue</h2>
+          <div className={styles.list}>
+            {overdue.map(task => <TaskCard key={task.id} task={task} overdue />)}
+          </div>
+        </section>
+      )}
+      </div>
     </div>
   )
 }

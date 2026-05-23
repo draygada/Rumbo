@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { WorkerType } from '../../types'
@@ -41,7 +40,6 @@ const WORKER_OPTIONS: { value: WorkerType; label: string; hours: string }[] = [
 
 export default function Onboarding() {
   const { session } = useAuth()
-  const navigate = useNavigate()
 
   const [stage, setStage] = useState(1)
   const [workerType, setWorkerType] = useState<WorkerType | null>(null)

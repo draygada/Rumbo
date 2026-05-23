@@ -1,20 +1,20 @@
 .badge {
   display: inline-block;
-  font-size: 11px;
+  font-size: var(--text-badge);
   font-weight: 600;
   letter-spacing: 0.03em;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   text-transform: uppercase;
 }
 
 .deep {
-  background: #e8f2f3;
+  background: var(--badge-deep-bg);
   color: var(--rumbo-teal);
 }
 
 .shallow {
-  background: #ede8f2;
+  background: var(--badge-shallow-bg);
   color: var(--rumbo-plum);
 }
 

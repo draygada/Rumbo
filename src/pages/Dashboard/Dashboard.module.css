@@ -1,103 +1,166 @@
 .page {
-  padding: 40px 48px;
-  max-width: 720px;
+  width: 100%;
+  min-height: 100%;
 }
 
-@media (max-width: 1024px) {
-  .page {
-    padding: 32px 32px;
-  }
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+  padding: var(--page-padding-desktop);
+  padding-bottom: var(--space-xl);
+  background: var(--color-bg-page);
 }
 
-@media (max-width: 768px) {
-  .page {
-    padding: 24px 20px;
-    max-width: 100%;
-  }
+.toolbarInner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-lg);
+  width: 100%;
 }
 
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 40px;
-  gap: 16px;
-  flex-wrap: wrap;
+.heading {
+  min-width: 0;
 }
 
 .title {
-  font-size: 24px;
+  font-size: var(--text-headline);
   font-weight: 700;
+  line-height: 1.2;
   color: var(--color-text);
+  letter-spacing: -0.02em;
 }
 
 .date {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--color-text-muted);
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .addButton {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 36px;
-  line-height: 36px;
-  padding: 0 16px;
+  padding: 0 var(--space-lg);
   background: var(--color-primary);
-  color: #fff;
-  border-radius: 8px;
-  font-size: 13px;
+  color: var(--color-on-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-label);
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
-  transition: background 0.15s;
+  flex-shrink: 0;
+  justify-self: end;
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .addButton:hover {
   background: var(--color-primary-hover);
 }
 
+.content {
+  padding: 0 var(--page-padding-desktop) var(--space-3xl);
+  max-width: 720px;
+}
+
+@media (max-width: 1024px) {
+  .toolbar {
+    padding: var(--page-padding-tablet);
+    padding-bottom: var(--space-xl);
+  }
+
+  .content {
+    padding-left: var(--page-padding-tablet);
+    padding-right: var(--page-padding-tablet);
+  }
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    padding: var(--page-padding-mobile);
+    padding-bottom: var(--space-lg);
+  }
+
+  .content {
+    padding-left: var(--page-padding-mobile);
+    padding-right: var(--page-padding-mobile);
+    max-width: 100%;
+  }
+}
+
 .section {
-  margin-bottom: 36px;
+  margin-bottom: var(--space-2xl);
+}
+
+.section:last-child {
+  margin-bottom: 0;
 }
 
 .sectionTitle {
-  font-size: 12px;
+  font-size: var(--text-caption);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-text-muted);
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
 }
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.status {
-  font-size: 14px;
-  color: var(--color-text-muted);
+  gap: var(--space-sm);
 }
 
 .error {
-  font-size: 14px;
+  font-size: var(--text-body);
   color: var(--color-error);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-error-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--color-error) 25%, transparent);
 }
 
 .empty {
-  margin-top: 80px;
+  margin-top: 64px;
+  padding: var(--space-3xl) var(--space-xl);
   text-align: center;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .emptyTitle {
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--color-text);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
 }
 
 .emptySubtitle {
-  font-size: 14px;
-  color: var(--color-text-muted);
+  font-size: var(--text-body);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-xl);
+}
+
+.emptyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 20px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.emptyButton:hover {
+  background: var(--color-primary-hover);
 }

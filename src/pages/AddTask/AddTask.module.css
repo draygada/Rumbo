@@ -234,13 +234,13 @@
 
 /* Premium fields */
 .premiumBadge {
-  font-size: 11px;
+  font-size: var(--text-badge);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: #ede8f2;
+  background: var(--premium-badge-bg);
   color: var(--rumbo-plum);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 2px 7px;
 }
 
@@ -296,13 +296,15 @@
 .button {
   height: 44px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   border: none;
-  border-radius: 8px;
-  font-size: 15px;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
 .button:disabled {

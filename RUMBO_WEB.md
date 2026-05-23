@@ -401,7 +401,7 @@ The abstraction exists so desktop can swap to Tauri secure store without touchin
 - [ ] `/add-task` containing sidebar
 - [ ] All form fields
 - [ ] Classifier in `src/lib/classifier.ts`
-- [ ] 3 second debounce on title input
+- [ ] 0 second debounce on title input
 - [ ] Badge display + toggle override
 - [ ] Premium field lock UI (description + PDF)
 - [ ] Submit → write task to Supabase
