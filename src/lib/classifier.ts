@@ -29,7 +29,12 @@ export function classify(title: string): ClassifierResult {
   const shallowScore = countMatches(title, SHALLOW_KEYWORDS)
   const deepScore = countMatches(title, DEEP_KEYWORDS)
 
-  const confidence = Math.max(shallowScore, deepScore) / (shallowScore + deepScore + 1)
+  // No keyword signal → neutral uncertainty (0.5), not maximum uncertainty (0).
+  // Confidence scales up only when keywords clearly favour one side.
+  const total = shallowScore + deepScore
+  const confidence = total === 0
+    ? 0.5
+    : Math.max(shallowScore, deepScore) / (total + 1)
   const type: TaskType = deepScore >= shallowScore ? 'deep' : 'shallow'
 
   return { type, confidence, shallowScore, deepScore }

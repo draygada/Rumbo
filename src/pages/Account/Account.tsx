@@ -12,7 +12,7 @@ export default function Account() {
   const navigate = useNavigate()
 
   const taskCount = tasks?.length ?? 0
-  const initials = getInitials(profile?.name)
+  const initials = getInitials(profile?.name, profile?.email)
 
   async function handleSignOut() {
     await signOut()

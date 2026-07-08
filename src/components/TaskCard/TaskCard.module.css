@@ -40,6 +40,37 @@
   white-space: nowrap;
 }
 
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.deleteButton {
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.deleteButton:hover:not(:disabled) {
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.deleteButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .meta {
   display: flex;
   align-items: center;
@@ -50,6 +81,12 @@
 .metaItem {
   font-size: var(--text-caption);
   color: var(--color-text-muted);
+}
+
+.scheduled {
+  font-size: var(--text-caption);
+  color: var(--color-accent);
+  font-weight: 500;
 }
 
 .dot {

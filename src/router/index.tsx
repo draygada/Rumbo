@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import SignIn from '../pages/SignIn/SignIn'
 import SignUp from '../pages/SignUp/SignUp'
+import ConfirmEmail from '../pages/ConfirmEmail/ConfirmEmail'
 import Onboarding from '../pages/Onboarding/Onboarding'
 import DashboardLayout from '../pages/Dashboard/DashboardLayout'
 import Dashboard from '../pages/Dashboard/Dashboard'
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
     children: [
       { path: '/signin', element: <SignIn /> },
       { path: '/signup', element: <SignUp /> },
+      { path: '/confirm-email', element: <ConfirmEmail /> },
     ],
   },
   {

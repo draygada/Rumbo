@@ -115,27 +115,63 @@ export default function AddTask() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!session) return
+    if (!session) {
+      console.warn('[AddTask] Submit blocked: no session')
+      return
+    }
     setError(null)
     setSaving(true)
 
-    try {
-      const { error: insertError } = await supabase.from('tasks').insert({
-        user_id: session.user.id,
-        title: title.trim(),
-        due_date: new Date(`${dueDate}T${dueTime}:00`).toISOString(),
-        estimated_mins: estimatedMins,
-        work_type: workType,
-        user_overrode_classifier: userOverrode,
-        classifier_confidence: classifierResult?.confidence ?? null,
-        shallow_score: classifierResult?.shallowScore ?? null,
-        deep_score: classifierResult?.deepScore ?? null,
-        description: isPremium && description.trim() ? description.trim() : null,
-      })
-      if (insertError) throw insertError
+    const dueDateIso = new Date(`${dueDate}T${dueTime}:00`).toISOString()
+    const payload = {
+      id: crypto.randomUUID(),
+      user_id: session.user.id,
+      title: title.trim(),
+      due_date: dueDateIso,
+      estimated_mins: estimatedMins,
+      work_type: workType,
+      user_overrode_classifier: userOverrode,
+      classifier_confidence: classifierResult?.confidence ?? null,
+      shallow_score: classifierResult?.shallowScore ?? null,
+      deep_score: classifierResult?.deepScore ?? null,
+      description: isPremium && description.trim() ? description.trim() : null,
+    }
 
+    console.log('[AddTask] Submit started', {
+      userId: session.user.id,
+      title: payload.title,
+      dueDate,
+      dueTime,
+      dueDateIso,
+      estimatedMins,
+      workType,
+    })
+
+    try {
+      const { data: inserted, error: insertError } = await supabase
+        .from('tasks')
+        .insert(payload)
+        .select('id')
+        .single()
+
+      if (insertError) {
+        console.error('[AddTask] Task insert failed', {
+          message: insertError.message,
+          code: insertError.code,
+          details: insertError.details,
+          hint: insertError.hint,
+          fullError: insertError,
+        })
+        throw insertError
+      }
+
+      console.log('[AddTask] Task inserted', { taskId: inserted.id })
+
+      // Navigate immediately. The DB trigger fires schedule-generator automatically;
+      // the Realtime subscription on work_blocks updates the dashboard when blocks arrive.
       navigate('/dashboard')
     } catch (err) {
+      console.error('[AddTask] Submit failed', err)
       setError(err instanceof Error ? err.message : 'Failed to save task')
     } finally {
       setSaving(false)

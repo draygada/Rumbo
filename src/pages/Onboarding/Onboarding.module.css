@@ -165,8 +165,18 @@
   background: var(--color-bg-surface);
   font-size: 14px;
   font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.calendarButton:disabled {
   color: var(--color-text-muted);
   cursor: not-allowed;
+}
+
+.calendarButtonDone {
+  border-color: var(--rumbo-teal);
+  background: color-mix(in srgb, var(--rumbo-teal) 8%, var(--color-bg-surface));
 }
 
 .comingSoon {

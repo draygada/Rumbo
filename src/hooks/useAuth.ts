@@ -63,8 +63,24 @@ export async function signIn(email: string, password: string) {
 
 export async function signUp(email: string, password: string, name: string) {
   const { data, error } = await supabase.auth.signUp({ email, password })
-  if (error) throw error
-  if (!data.user) throw new Error('Sign up failed')
+  if (error) {
+    console.error('[auth.signUp] Supabase signUp failed', {
+      email,
+      message: error.message,
+      status: error.status,
+      name: error.name,
+      code: (error as { code?: string }).code,
+      fullError: error,
+    })
+    throw error
+  }
+  if (!data.user) {
+    console.error('[auth.signUp] No user returned from Supabase', {
+      email,
+      data,
+    })
+    throw new Error('Sign up failed')
+  }
 
   const { error: profileError } = await supabase.from('users').insert({
     id: data.user.id,
@@ -72,7 +88,24 @@ export async function signUp(email: string, password: string, name: string) {
     name,
     tier: 'free',
   })
-  if (profileError) throw profileError
+  if (profileError) {
+    console.error('[auth.signUp] Failed inserting profile row', {
+      userId: data.user.id,
+      email,
+      name,
+      message: profileError.message,
+      code: profileError.code,
+      details: profileError.details,
+      hint: profileError.hint,
+      fullError: profileError,
+    })
+    throw profileError
+  }
+
+  console.log('[auth.signUp] Signup + profile insert succeeded', {
+    userId: data.user.id,
+    email,
+  })
 }
 
 export async function signOut() {

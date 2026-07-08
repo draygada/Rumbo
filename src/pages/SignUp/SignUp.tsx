@@ -4,6 +4,20 @@ import { signUp } from '../../hooks/useAuth'
 import RumboLogo from '../../components/RumboLogo/RumboLogo'
 import styles from './SignUp.module.css'
 
+function getSignupErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return 'Sign up failed'
+
+  const authError = err as Error & { code?: string; status?: number }
+  if (
+    authError.code === 'over_email_send_rate_limit' ||
+    authError.status === 429
+  ) {
+    return 'Too many signup attempts right now. Please wait a few minutes and try again.'
+  }
+
+  return err.message
+}
+
 export default function SignUp() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
@@ -29,10 +43,17 @@ export default function SignUp() {
 
     setLoading(true)
     try {
+      console.log('[SignUp] Submit started', {
+        email: email.trim(),
+        hasName: Boolean(name.trim()),
+        passwordLength: password.length,
+      })
       await signUp(email, password, name)
+      console.log('[SignUp] Navigate to onboarding')
       navigate('/onboarding')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign up failed')
+      console.error('[SignUp] Submit failed', err)
+      setError(getSignupErrorMessage(err))
     } finally {
       setLoading(false)
     }

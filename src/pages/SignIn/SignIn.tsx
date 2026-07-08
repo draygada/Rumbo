@@ -4,6 +4,17 @@ import { signIn } from '../../hooks/useAuth'
 import RumboLogo from '../../components/RumboLogo/RumboLogo'
 import styles from './SignIn.module.css'
 
+function isEmailNotConfirmedError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const authError = err as Error & { code?: string }
+  const message = err.message.toLowerCase()
+  return (
+    authError.code === 'email_not_confirmed' ||
+    message.includes('email not confirmed') ||
+    message.includes('verify')
+  )
+}
+
 export default function SignIn() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -19,6 +30,11 @@ export default function SignIn() {
       await signIn(email, password)
       navigate('/dashboard')
     } catch (err) {
+      if (isEmailNotConfirmedError(err)) {
+        const emailParam = encodeURIComponent(email.trim())
+        navigate(`/confirm-email?email=${emailParam}`)
+        return
+      }
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {
       setLoading(false)

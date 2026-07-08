@@ -1,10 +1,16 @@
-import { Task } from '../../types'
+import { WorkBlock } from '../../types'
 import ClassifierBadge from '../ClassifierBadge/ClassifierBadge'
 import styles from './TaskCard.module.css'
 
 interface Props {
-  task: Task
+  title: string
+  workType: 'deep' | 'shallow' | null
+  dueDate: string
+  estimatedMins: number
+  nextBlock?: WorkBlock | null
   overdue?: boolean
+  onDelete?: () => void
+  deleting?: boolean
 }
 
 function formatMins(mins: number): string {
@@ -21,17 +27,56 @@ function formatDue(isoDate: string): string {
   return `${dateStr} at ${timeStr}`
 }
 
-export default function TaskCard({ task, overdue = false }: Props) {
+function formatBlockTime(isoDate: string): string {
+  const date = new Date(isoDate)
+  return date.toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+export default function TaskCard({
+  title,
+  workType,
+  dueDate,
+  estimatedMins,
+  nextBlock = null,
+  overdue = false,
+  onDelete,
+  deleting = false,
+}: Props) {
   return (
     <div className={overdue ? `${styles.card} ${styles.cardOverdue}` : styles.card}>
       <div className={styles.top}>
-        <span className={styles.title}>{task.title}</span>
-        {task.work_type && <ClassifierBadge type={task.work_type} />}
+        <span className={styles.title}>{title}</span>
+        <div className={styles.topActions}>
+          {workType && <ClassifierBadge type={workType} />}
+          {onDelete && (
+            <button
+              type="button"
+              className={styles.deleteButton}
+              onClick={onDelete}
+              disabled={deleting}
+              aria-label={`Delete ${title}`}
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          )}
+        </div>
       </div>
       <div className={styles.meta}>
-        <span className={styles.metaItem}>Due {formatDue(task.due_date)}</span>
+        {nextBlock ? (
+          <span className={styles.scheduled}>
+            Scheduled {formatBlockTime(nextBlock.starts_at)}
+          </span>
+        ) : (
+          <span className={styles.metaItem}>Due {formatDue(dueDate)}</span>
+        )}
         <span className={styles.dot}>·</span>
-        <span className={styles.metaItem}>{formatMins(task.estimated_mins)}</span>
+        <span className={styles.metaItem}>{formatMins(estimatedMins)}</span>
       </div>
     </div>
   )

@@ -1,0 +1,110 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+  background: color-mix(in srgb, var(--color-text) 35%, transparent);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 400px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  box-shadow: 0 8px 32px var(--color-shadow);
+}
+
+.title {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--color-text);
+}
+
+.message {
+  margin: 0 0 var(--space-xl);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.buttonSecondary {
+  height: 40px;
+  padding: 0 16px;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.buttonSecondary:hover:not(:disabled) {
+  background: var(--color-bg-muted);
+  border-color: var(--color-border-hover);
+}
+
+.buttonSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttonPrimary {
+  height: 40px;
+  padding: 0 16px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.buttonPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttonDanger {
+  height: 40px;
+  padding: 0 16px;
+  background: var(--color-error);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.buttonDanger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error) 85%, var(--color-text));
+}
+
+.buttonDanger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

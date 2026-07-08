@@ -7,7 +7,7 @@ import styles from './Sidebar.module.css'
 export default function Sidebar() {
   const { profile } = useAuth()
 
-  const initials = getInitials(profile?.name)
+  const initials = getInitials(profile?.name, profile?.email)
 
   return (
     <aside className={styles.sidebar}>
@@ -40,7 +40,9 @@ export default function Sidebar() {
 
       <div className={styles.user}>
         <div className={styles.avatar}>{initials}</div>
-        <span className={styles.username}>{profile?.name ?? ''}</span>
+        <span className={styles.username}>
+          {profile?.name?.trim() || profile?.email?.split('@')[0] || ''}
+        </span>
       </div>
     </aside>
   )

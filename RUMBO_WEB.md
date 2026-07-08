@@ -371,17 +371,17 @@ The abstraction exists so desktop can swap to Tauri secure store without touchin
 ## Build order
 
 ### Phase 1 — scaffold + auth (start here)
-- [ ] Vite + React + TypeScript project init
-- [ ] React Router v6 wired
-- [ ] Supabase client in `src/lib/supabase.ts`
-- [ ] `/signin` page — Supabase signInWithPassword
-- [ ] `/signup` page — Supabase signUp
+- [x] Vite + React + TypeScript project init
+- [x]  React Router v6 wired
+- [x]  Supabase client in `src/lib/supabase.ts`
+- [x]  `/signin` page — Supabase signInWithPassword
+- [x]  `/signup` page — Supabase signUp
 - [ ] Route guards in `router/index.tsx`
 - [ ] `.env.local` with Supabase URL + anon key
 - [ ] `.gitignore` includes `.env.local`
 
 ### Phase 2 — onboarding
-- [ ] `/onboarding` — 4 stage flow
+- [x] `/onboarding` — 4 stage flow
 - [ ] Stage 1: worker type cards
 - [ ] Stage 2: unavailable hours pickers
 - [ ] Stage 3: calendar connect (Google + Outlook OAuth, skippable)
@@ -407,11 +407,11 @@ The abstraction exists so desktop can swap to Tauri secure store without touchin
 - [ ] Submit → write task to Supabase
 
 ### Phase 5 — scheduling + calendar
-- [ ] `schedule-generator` Edge Function
-- [ ] `calendar-sync` Edge Function
-- [ ] Google Calendar OAuth flow
-- [ ] Blocks appear in task list after task creation
-- [ ] Nightly refresh cron
+- [x] `schedule-generator` Edge Function
+- [x] `calendar-sync` Edge Function
+- [x] Google Calendar OAuth flow
+- [x] Blocks appear in task list after task creation
+- [x] Nightly refresh cron
 
 ### Phase 6 — reflection loop + profile
 - [ ] Active block view + timer

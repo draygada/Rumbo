@@ -1,0 +1,19 @@
+# Supabase local config — see https://supabase.com/docs/guides/cli/config
+
+[api]
+enabled = true
+
+[db]
+major_version = 15
+
+[functions.schedule-generator]
+verify_jwt = true
+
+[functions.calendar-sync]
+verify_jwt = false
+
+[functions.calendar-oauth]
+verify_jwt = false
+
+[functions.delete-task]
+verify_jwt = true

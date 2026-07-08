@@ -75,3 +75,62 @@
   font-size: var(--text-label);
   color: var(--color-text-muted);
 }
+
+.calendarRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-xs);
+}
+
+.connectedBadge {
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--color-accent);
+}
+
+.buttonPrimary {
+  margin-top: var(--space-xs);
+  padding: 10px 18px;
+  background: var(--rumbo-plum);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.buttonPrimary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.buttonSecondary {
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.buttonSecondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.comingSoonNote {
+  margin-top: var(--space-sm);
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+.message {
+  margin-top: var(--space-lg);
+  font-size: var(--text-label);
+  color: var(--color-text-secondary);
+}

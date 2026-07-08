@@ -1,0 +1,71 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-page);
+  padding: var(--space-xl) var(--space-lg);
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-3xl);
+  text-align: center;
+}
+
+.title {
+  margin-top: var(--space-lg);
+  margin-bottom: var(--space-sm);
+}
+
+.subtitle {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.email {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.helper {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xl);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.button:hover {
+  background: var(--color-primary-hover);
+}
+
+.link {
+  color: var(--color-link);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.link:hover {
+  color: var(--color-link-hover);
+  text-decoration: underline;
+}
