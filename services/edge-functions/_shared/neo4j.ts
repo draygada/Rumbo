@@ -35,8 +35,11 @@ export function neo4j(): Neo4jClient {
   const uri = envRequired('NEO4J_URI').replace(/\/$/, '');
   const user = envRequired('NEO4J_USER');
   const password = envRequired('NEO4J_PASSWORD');
+  // Aura Free names the default database after the instance id, not "neo4j".
+  // Fall back to "neo4j" for self-hosted / Aura Pro conventions.
+  const database = Deno.env.get('NEO4J_DATABASE') ?? 'neo4j';
   const auth = 'Basic ' + btoa(`${user}:${password}`);
-  const url = `${uri}/db/neo4j/query/v2`;
+  const url = `${uri}/db/${database}/query/v2`;
 
   async function runOne<T = Record<string, unknown>>(stmt: Neo4jStatement): Promise<T[]> {
     const res = await fetch(url, {
