@@ -121,7 +121,96 @@ export async function ensureConcept(
 }
 
 // ---------------------------------------------------------------------------
-// Edges — COVERS and APPEARS_IN
+// Combined upsert — one Cypher call resolves-or-creates the Concept, links
+// COVERS, and links APPEARS_IN. Cuts 4 Neo4j round-trips down to 1 per concept,
+// which is what actually keeps the Fast-tier extraction under the Edge
+// Function wall-clock at 50-100 records per invocation.
+// ---------------------------------------------------------------------------
+
+export interface UpsertConceptAndLinkArgs {
+  userId: string
+  name: string
+  normalizedName: string
+  embedding: number[]
+  sourceLabel: CoversSourceLabel
+  sourceId: string
+  weight: number
+  isPrimary: boolean
+  courseId: string | null
+}
+
+export interface UpsertResult {
+  id: string
+  merged: boolean
+}
+
+export async function upsertConceptAndLink(
+  client: Neo4jClient,
+  args: UpsertConceptAndLinkArgs,
+): Promise<UpsertResult> {
+  const hash = (await sha256Hex(args.userId + args.normalizedName)).slice(0, 16)
+  const newId = `concept_${hash}`
+
+  // The Cypher: vector-lookup a match; pick existing if any, else use newId.
+  // Then a MERGE on that id (creates if new) with mention_count bump.
+  // Then link COVERS. Then optionally link APPEARS_IN.
+  const cypher = `
+    CALL db.index.vector.queryNodes('concept_embedding', 3, $embedding) YIELD node, score
+    WITH node, score
+    WHERE node.user_id = $userId AND score >= 0.82
+    WITH collect({id: node.id, score: score}) AS hits
+    WITH CASE WHEN size(hits) > 0 THEN hits[0].id ELSE $newId END AS conceptId,
+         size(hits) > 0 AS merged
+    MERGE (c:Concept {id: conceptId})
+    ON CREATE SET c.user_id = $userId,
+                  c.name = $name,
+                  c.normalized_name = $normalized,
+                  c.embedding = $embedding,
+                  c.mention_count = 1,
+                  c.first_seen_at = datetime(),
+                  c.last_seen_at = datetime()
+    ON MATCH  SET c.mention_count = coalesce(c.mention_count, 0) + 1,
+                  c.last_seen_at = datetime()
+    WITH c, merged
+    CALL {
+      WITH c
+      MATCH (s:${args.sourceLabel} {id: $sourceId, user_id: $userId})
+      MERGE (s)-[r:COVERS]->(c)
+      SET r.weight = $weight, r.is_primary = $isPrimary
+      RETURN 1 AS covered
+    }
+    CALL {
+      WITH c
+      OPTIONAL MATCH (course:Course {id: $courseId, user_id: $userId})
+      FOREACH (_ IN CASE WHEN course IS NOT NULL AND $courseId IS NOT NULL THEN [1] ELSE [] END |
+        MERGE (c)-[a:APPEARS_IN]->(course)
+        ON CREATE SET a.mention_count = 1
+        ON MATCH  SET a.mention_count = coalesce(a.mention_count, 0) + 1
+      )
+      RETURN 1 AS appeared
+    }
+    RETURN c.id AS id, merged
+  `
+
+  const rows = await client.run<{ id: string; merged: boolean }>(cypher, {
+    embedding: args.embedding,
+    userId: args.userId,
+    newId,
+    name: args.name,
+    normalized: args.normalizedName,
+    sourceId: args.sourceId,
+    weight: args.weight,
+    isPrimary: args.isPrimary,
+    courseId: args.courseId,
+  })
+  const row = rows[0]
+  if (!row) return { id: newId, merged: false }
+  return { id: row.id, merged: !!row.merged }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy per-hop helpers — kept for backfill / chunker code paths that need
+// only one of the operations.
 // ---------------------------------------------------------------------------
 
 // COVERS is valid from any of the source-node labels defined in graph-schema.md §3.

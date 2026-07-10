@@ -18,20 +18,17 @@ import {
   type NormalizedEventLite,
 } from '../_shared/brain-extraction-v2.ts'
 import {
-  ensureConcept,
   ensureStructuralNode,
-  linkAppearsIn,
-  linkCovers,
+  upsertConceptAndLink,
   type StructuralLabel,
 } from '../_shared/neo4j-graph-writer.ts'
 
 const PIPELINE_VERSION = 'fast-v2-2026-07-09'
-// Edge Function worker resource caps: gemini-flash-latest resolves to a
-// thinking model that uses substantial compute + memory. 50 records/run keeps
-// us well under WORKER_RESOURCE_LIMIT; caller re-invokes until 'processed'
-// is 0. Bump when we move to non-thinking mode via thinkingConfig.
-const DEFAULT_LIMIT = 50
-const HARD_CAP = 50
+// After folding vector-lookup + upsert + linkCovers + linkAppearsIn into a
+// single Cypher (see neo4j-graph-writer upsertConceptAndLink), we can push
+// batches back up. 100 fits comfortably under the 150s ceiling.
+const DEFAULT_LIMIT = 100
+const HARD_CAP = 100
 
 // Source-type priority: lecture > syllabus > assignment > file > course > event.
 const SOURCE_TYPE_PRIORITY: Record<string, number> = {
@@ -298,33 +295,23 @@ async function runForUser(userId: string, limit: number): Promise<RunResult> {
           try {
             const authority = SOURCE_AUTHORITY[item.row.source_type] ?? 0.60
             const weight = authority * (item.is_primary ? 1.0 : 0.6)
-            const cRes = await ensureConcept(g, {
+            const plan = planStructuralNode(item.row)
+            if (!plan) continue
+            const courseId = plan.label === 'Course' ? plan.id : plan.courseId
+            const cRes = await upsertConceptAndLink(g, {
               userId,
               name: item.name,
               normalizedName: item.normalized,
               embedding: emb,
-              sourceAuthority: authority,
+              sourceLabel: plan.label,
+              sourceId: plan.id,
+              weight,
+              isPrimary: item.is_primary,
+              courseId,
             })
             if (cRes.merged) result.concepts_merged += 1
             else result.concepts_created += 1
-
-            const plan = planStructuralNode(item.row)
-            if (plan) {
-              await linkCovers(g, {
-                userId,
-                sourceLabel: plan.label,
-                sourceId: plan.id,
-                conceptId: cRes.id,
-                weight,
-                isPrimary: item.is_primary,
-              })
-              result.edges_created += 1
-              const courseId = plan.label === 'Course' ? plan.id : plan.courseId
-              if (courseId) {
-                await linkAppearsIn(g, { userId, conceptId: cRes.id, courseId })
-                result.edges_created += 1
-              }
-            }
+            result.edges_created += courseId ? 2 : 1
           } catch (err) {
             failedRowIds.add(item.row.id)
             result.errors.push(`concept "${item.name}" (record ${item.row.id}): ${errMsg(err)}`)
