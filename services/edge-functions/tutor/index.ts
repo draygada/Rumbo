@@ -180,7 +180,12 @@ ${args.question}`
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: TUTOR_SYSTEM_PROMPT }] },
         contents: [{ role: 'user', parts: [{ text: userText }] }],
-        generationConfig: { maxOutputTokens: 800, temperature: 0.4 },
+        generationConfig: {
+          maxOutputTokens: 1400,
+          temperature: 0.4,
+          // Disable thinking so the token budget goes to visible answer.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
     },
   )
