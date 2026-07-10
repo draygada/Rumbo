@@ -62,6 +62,10 @@ export async function geminiClassifyJson<T>(args: {
           responseSchema: args.schema,
           maxOutputTokens: args.maxTokens ?? 512,
           temperature: 0,
+          // Disable thinking-mode. Newer flash-latest resolves to a thinking
+          // model whose reasoning tokens count against output budget, which
+          // caused mid-JSON truncation in extraction batches.
+          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     })
@@ -72,7 +76,17 @@ export async function geminiClassifyJson<T>(args: {
     const data = await res.json()
     const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
     if (!text) return null
-    return JSON.parse(text) as T
+    try {
+      return JSON.parse(text) as T
+    } catch (parseErr) {
+      // Truncated output despite maxOutputTokens — log tail and fail-soft.
+      console.warn(
+        `[gemini] classify JSON parse failed (${text.length}b): ${
+          text.slice(-160).replace(/\n/g, ' ')
+        }`,
+      )
+      return null
+    }
   } catch (err) {
     console.warn('[gemini] classify error:', err)
     return null

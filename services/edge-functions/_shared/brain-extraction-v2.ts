@@ -159,7 +159,7 @@ async function extractOneBatch(chunk: NormalizedEventLite[]): Promise<RecordConc
     system,
     userText,
     schema: RESPONSE_SCHEMA,
-    maxTokens: 2048,
+    maxTokens: 3500,
   })
   const results = Array.isArray(parsed?.results) ? parsed!.results : []
   // Fill in any missing record_ids so callers always know which records the
