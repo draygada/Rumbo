@@ -124,9 +124,12 @@ export async function ensureConcept(
 // Edges — COVERS and APPEARS_IN
 // ---------------------------------------------------------------------------
 
+// COVERS is valid from any of the source-node labels defined in graph-schema.md §3.
+export type CoversSourceLabel = StructuralLabel | 'LectureSlide' | 'LectureSection'
+
 export interface LinkCoversArgs {
   userId: string
-  sourceLabel: StructuralLabel
+  sourceLabel: CoversSourceLabel
   sourceId: string
   conceptId: string
   weight: number

@@ -136,6 +136,57 @@ export async function geminiCallTool<T>(args: {
 // Multimodal PDF read — extract or classify document content
 // -----------------------------------------------------------------------------
 
+export async function geminiReadPdfJson<T>(args: {
+  base64Pdf: string
+  prompt: string
+  schema: GeminiJsonSchema
+  model?: string
+  maxTokens?: number
+}): Promise<T | null> {
+  const key = apiKey()
+  if (!key) return null
+  const model = args.model ?? GEMINI_STRONG_MODEL
+  try {
+    const res = await fetch(`${GEMINI_API}/models/${model}:generateContent?key=${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'application/pdf', data: args.base64Pdf } },
+              { text: args.prompt },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: args.schema,
+          maxOutputTokens: args.maxTokens ?? 8000,
+          temperature: 0,
+        },
+      }),
+    })
+    if (!res.ok) {
+      console.warn(`[gemini] pdfJson ${res.status}: ${(await res.text()).slice(0, 200)}`)
+      return null
+    }
+    const data = await res.json()
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!raw) return null
+    try {
+      return JSON.parse(raw) as T
+    } catch (parseErr) {
+      console.warn('[gemini] pdfJson parse error:', parseErr)
+      return null
+    }
+  } catch (err) {
+    console.warn('[gemini] pdfJson error:', err)
+    return null
+  }
+}
+
 export async function geminiReadPdf(args: {
   base64Pdf: string
   prompt: string

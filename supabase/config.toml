@@ -63,6 +63,9 @@ verify_jwt = false
 [functions.neo4j-schema-apply]
 verify_jwt = false
 
+[functions.sub-lecture-chunker]
+verify_jwt = false
+
 [functions.neo4j-backfill]
 verify_jwt = false
 
