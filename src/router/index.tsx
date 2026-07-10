@@ -8,7 +8,9 @@ import DashboardLayout from '../pages/Dashboard/DashboardLayout'
 import Dashboard from '../pages/Dashboard/Dashboard'
 import Settings from '../pages/Settings/Settings'
 import Account from '../pages/Account/Account'
-import AddTask from '../pages/AddTask/AddTask'
+import ManualCourses from '../pages/ManualCourses/ManualCourses'
+import Brain from '../pages/Brain/Brain'
+// AddTask is preserved but not routed in V0 — see Rumbo-Design-Docs/Legacy/scheduler.md.
 
 function PublicRoute() {
   const { session, profile, loading } = useAuth()
@@ -55,9 +57,10 @@ export const router = createBrowserRouter([
         element: <DashboardLayout />,
         children: [
           { path: '/dashboard', element: <Dashboard /> },
+          { path: '/courses', element: <ManualCourses /> },
+          { path: '/brain', element: <Brain /> },
           { path: '/settings', element: <Settings /> },
           { path: '/account', element: <Account /> },
-          { path: '/add-task', element: <AddTask /> },
         ],
       },
     ],

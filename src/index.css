@@ -72,6 +72,39 @@
     var(--rumbo-dark-green),
     var(--rumbo-purple)
   );
+
+  color-scheme: light;
+}
+
+/* Dark theme — activated by [data-theme="dark"] on <html>. See ThemeProvider. */
+:root[data-theme='dark'] {
+  --color-text: #ebe9f0;
+  --color-text-secondary: #b6b2c2;
+  --color-text-muted: #7d7a89;
+  --color-bg-page: #17151b;
+  --color-bg-surface: #201d24;
+  --color-bg-sidebar: #1b1920;
+  --color-bg-muted: #26232b;
+  --color-bg-selected: #223638;
+  --color-border: #33303a;
+  --color-border-hover: #4a4753;
+  --color-on-primary: #fcfbfd;
+
+  --color-primary: #b18db1;
+  --color-primary-hover: #c6a4c6;
+  --color-accent: #7fb7bd;
+  --color-focus: #7fb7bd;
+  --color-link: #c6a4c6;
+  --color-link-hover: #d9c0d9;
+  --color-error: #e08a86;
+  --color-error-bg: #2a1e1e;
+  --color-shadow: rgba(0, 0, 0, 0.35);
+
+  --badge-deep-bg: #223638;
+  --badge-shallow-bg: #2b2530;
+  --premium-badge-bg: #2b2530;
+
+  color-scheme: dark;
 }
 
 @media (prefers-reduced-motion: reduce) {

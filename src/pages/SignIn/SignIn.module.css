@@ -25,9 +25,12 @@
 
 .subtitle {
   font-size: var(--text-body);
+  font-weight: 400;
   color: var(--color-text-secondary);
   margin-bottom: var(--space-2xl);
   text-align: center;
+  line-height: 1.5;
+  letter-spacing: normal;
 }
 
 .form {

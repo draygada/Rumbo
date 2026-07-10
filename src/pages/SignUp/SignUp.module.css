@@ -25,9 +25,12 @@
 
 .subtitle {
   font-size: var(--text-body);
+  font-weight: 400;
   color: var(--color-text-secondary);
   margin-bottom: var(--space-2xl);
   text-align: center;
+  line-height: 1.5;
+  letter-spacing: normal;
 }
 
 .form {
@@ -40,6 +43,23 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
+}
+
+.nameRow {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.nameRow .field {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .nameRow {
+    flex-direction: column;
+    gap: 20px;
+  }
 }
 
 .label {

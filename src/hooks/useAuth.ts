@@ -61,8 +61,18 @@ export async function signIn(email: string, password: string) {
   if (error) throw error
 }
 
-export async function signUp(email: string, password: string, name: string) {
-  const { data, error } = await supabase.auth.signUp({ email, password })
+export async function signUp(email: string, password: string, firstName: string, lastName: string) {
+  const first = firstName.trim()
+  const last = lastName.trim()
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      // Stored on auth.users.raw_user_meta_data; handle_new_auth_user() reads
+      // these when creating the public.users row.
+      data: { first_name: first, last_name: last },
+    },
+  })
   if (error) {
     console.error('[auth.signUp] Supabase signUp failed', {
       email,
@@ -82,17 +92,19 @@ export async function signUp(email: string, password: string, name: string) {
     throw new Error('Sign up failed')
   }
 
-  const { error: profileError } = await supabase.from('users').insert({
-    id: data.user.id,
-    email,
-    name,
-    tier: 'free',
-  })
+  // Upsert so we tolerate the case where the auth trigger already inserted the
+  // row via handle_new_auth_user (hosted Supabase). The generated `name` column
+  // is not inserted — Postgres computes it from first_name + last_name.
+  const { error: profileError } = await supabase.from('users').upsert(
+    { id: data.user.id, email, first_name: first, last_name: last },
+    { onConflict: 'id' },
+  )
   if (profileError) {
-    console.error('[auth.signUp] Failed inserting profile row', {
+    console.error('[auth.signUp] Failed upserting profile row', {
       userId: data.user.id,
       email,
-      name,
+      first,
+      last,
       message: profileError.message,
       code: profileError.code,
       details: profileError.details,
@@ -102,7 +114,7 @@ export async function signUp(email: string, password: string, name: string) {
     throw profileError
   }
 
-  console.log('[auth.signUp] Signup + profile insert succeeded', {
+  console.log('[auth.signUp] Signup + profile upsert succeeded', {
     userId: data.user.id,
     email,
   })

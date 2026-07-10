@@ -1,16 +1,22 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
-  useTasks,
-  useDeleteTask,
-  useWorkBlocksRealtime,
-  getNextBlock,
-  TaskWithBlocks,
-} from '../../hooks/useTasks'
-import { useAuth } from '../../hooks/useAuth'
-import TaskCard from '../../components/TaskCard/TaskCard'
+  useUpcomingAssignments,
+  useStillOpenAssignments,
+  useRecentlyAdded,
+  useTodaysCalendar,
+  useHasConnectedSources,
+  useCanvasSyncState,
+  useCourses,
+  groupByCourse,
+  courseNameFromEvent,
+  assignmentNameFromEvent,
+  pointsFromEvent,
+  sourceBadge,
+  type CourseInfo,
+  type NormalizedEvent,
+} from '../../hooks/useNormalizedEvents'
+import AssignmentCard from '../../components/AssignmentCard/AssignmentCard'
 import TaskSkeleton from '../../components/TaskSkeleton/TaskSkeleton'
-import ConfirmDialog from '../../components/ConfirmDialog/ConfirmDialog'
 import styles from './Dashboard.module.css'
 
 const TODAY_LABEL = new Date().toLocaleDateString('en-US', {
@@ -19,185 +25,181 @@ const TODAY_LABEL = new Date().toLocaleDateString('en-US', {
   day: 'numeric',
 })
 
-function localDateKey(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-const TODAY = localDateKey(new Date())
-
-/** Group by next scheduled block date, or due date if not yet scheduled. */
-function scheduleDateKey(task: TaskWithBlocks): string {
-  const block = getNextBlock(task)
-  if (block) return localDateKey(new Date(block.starts_at))
-  return localDateKey(new Date(task.due_at))
-}
-
-function groupTasks(tasks: TaskWithBlocks[]) {
-  const overdue: TaskWithBlocks[] = []
-  const today: TaskWithBlocks[] = []
-  const upcoming: TaskWithBlocks[] = []
-  for (const task of tasks) {
-    const key = scheduleDateKey(task)
-    if (key < TODAY) {
-      overdue.push(task)
-    } else if (key === TODAY) {
-      today.push(task)
-    } else {
-      upcoming.push(task)
-    }
-  }
-  return { overdue, today, upcoming }
-}
-
-function renderTaskCard(
-  task: TaskWithBlocks,
-  onDeleteClick: (task: TaskWithBlocks) => void,
-  deletingId: string | null,
-  overdue?: boolean,
-) {
+function renderCard(event: NormalizedEvent, courses: Map<string, CourseInfo> | undefined, stale = false) {
   return (
-    <TaskCard
-      key={task.id}
-      title={task.title}
-      workType={task.work_type}
-      dueDate={task.due_at}
-      estimatedMins={task.estimated_mins}
-      nextBlock={getNextBlock(task)}
-      overdue={overdue}
-      onDelete={() => onDeleteClick(task)}
-      deleting={deletingId === task.id}
+    <AssignmentCard
+      key={event.id}
+      name={assignmentNameFromEvent(event)}
+      courseName={courseNameFromEvent(event, courses)}
+      dueAt={event.timestamp}
+      points={pointsFromEvent(event)}
+      sourceBadge={sourceBadge(event.source_type)}
+      stale={stale}
     />
   )
 }
 
+function formatCalendarTime(iso: string | null): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
 export default function Dashboard() {
-  const { session } = useAuth()
-  const { data: tasks, isLoading, isError } = useTasks()
-  const deleteTask = useDeleteTask()
-  useWorkBlocksRealtime(session?.user.id)
+  const upcoming = useUpcomingAssignments()
+  const coursesQuery = useCourses()
+  const courses = coursesQuery.data
+  const stillOpen = useStillOpenAssignments()
+  const recentlyAdded = useRecentlyAdded()
+  const todaysCalendar = useTodaysCalendar()
+  const sources = useHasConnectedSources()
+  const canvasSync = useCanvasSyncState()
 
-  const [taskToDelete, setTaskToDelete] = useState<TaskWithBlocks | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [stillOpenExpanded, setStillOpenExpanded] = useState(false)
 
-  const { overdue, today, upcoming } = groupTasks(tasks ?? [])
-  const isEmpty = !isLoading && (tasks ?? []).length === 0
-  const deletingId = deleteTask.isPending
-    ? (deleteTask.variables?.taskId ?? null)
-    : null
+  const isLoading =
+    upcoming.isLoading || stillOpen.isLoading || recentlyAdded.isLoading || todaysCalendar.isLoading || sources.isLoading
+  const isError = upcoming.isError || stillOpen.isError || recentlyAdded.isError || todaysCalendar.isError
 
-  function handleDeleteClick(task: TaskWithBlocks) {
-    setTaskToDelete(task)
-  }
+  const upcomingCount = (upcoming.data ?? []).length
+  const stillOpenCount = (stillOpen.data ?? []).length
+  const recentCount = (recentlyAdded.data ?? []).length
+  const calendarCount = (todaysCalendar.data ?? []).length
 
-  function confirmDelete() {
-    if (!taskToDelete || !session) return
-    deleteTask.mutate(
-      { taskId: taskToDelete.id },
-      {
-        onSuccess: () => setTaskToDelete(null),
-        onError: err => {
-          setTaskToDelete(null)
-          setDeleteError(err instanceof Error ? err.message : 'Failed to delete task')
-        },
-      },
-    )
-  }
+  const hasAnyEvents = upcomingCount + stillOpenCount + recentCount + calendarCount > 0
+  const hasSources = sources.data?.any ?? false
+  const canvasTokenExpired = canvasSync.data?.token_status === 'expired'
+  const canvasPending = sources.data?.canvas && !canvasSync.data?.last_polled_at
+
+  const showNoSources = !isLoading && !hasSources && !hasAnyEvents
+  const showIngestionPending = !isLoading && hasSources && !hasAnyEvents && canvasPending
+  const showCaughtUp = !isLoading && hasSources && !hasAnyEvents && !canvasPending
+
+  const grouped = upcoming.data ? groupByCourse(upcoming.data) : new Map()
 
   return (
     <div className={styles.page}>
-      <ConfirmDialog
-        open={taskToDelete !== null}
-        title="Delete task?"
-        message={
-          taskToDelete
-            ? `"${taskToDelete.title}" will be removed permanently. This cannot be undone.`
-            : ''
-        }
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
-        confirmTone="danger"
-        loading={deleteTask.isPending}
-        onConfirm={confirmDelete}
-        onCancel={() => setTaskToDelete(null)}
-      />
-
-      <ConfirmDialog
-        open={deleteError !== null}
-        title="Could not delete task"
-        message={deleteError ?? ''}
-        variant="alert"
-        confirmLabel="OK"
-        onConfirm={() => setDeleteError(null)}
-        onCancel={() => setDeleteError(null)}
-      />
       <header className={styles.toolbar}>
         <div className={styles.toolbarInner}>
           <div className={styles.heading}>
-            <h1 className={styles.title}>Tasks</h1>
+            <h1 className={styles.title}>This week</h1>
             <p className={styles.date}>{TODAY_LABEL}</p>
           </div>
-          <Link to="/add-task" className={styles.addButton}>
-            + Add Task
-          </Link>
         </div>
       </header>
 
       <div className={styles.content}>
-      {isLoading && (
-        <div className={styles.list} aria-busy="true" aria-label="Loading tasks">
-          <TaskSkeleton />
-          <TaskSkeleton />
-          <TaskSkeleton />
-        </div>
-      )}
+        {isLoading && (
+          <div className={styles.list} aria-busy="true" aria-label="Loading">
+            <TaskSkeleton />
+            <TaskSkeleton />
+            <TaskSkeleton />
+          </div>
+        )}
 
-      {isError && (
-        <p className={styles.error} role="alert">
-          Could not load tasks. Check your connection and try again.
-        </p>
-      )}
-
-      {isEmpty && (
-        <div className={styles.empty}>
-          <p className={styles.emptyTitle}>Nothing scheduled yet</p>
-          <p className={styles.emptySubtitle}>
-            Add a task and Rumbo will place it on your calendar.
+        {isError && (
+          <p className={styles.error} role="alert">
+            Could not load your data. Check your connection and try again.
           </p>
-          <Link to="/add-task" className={styles.emptyButton}>
-            Add task
-          </Link>
-        </div>
-      )}
+        )}
 
-      {!isLoading && today.length > 0 && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Scheduled today</h2>
-          <div className={styles.list}>
-            {today.map(task => renderTaskCard(task, handleDeleteClick, deletingId))}
+        {canvasTokenExpired && (
+          <div className={styles.alert} role="alert">
+            Your Canvas connection needs to be refreshed. Reconnect in Settings.
           </div>
-        </section>
-      )}
+        )}
 
-      {!isLoading && upcoming.length > 0 && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Upcoming</h2>
-          <div className={styles.list}>
-            {upcoming.map(task => renderTaskCard(task, handleDeleteClick, deletingId))}
+        {showNoSources && (
+          <div className={styles.empty}>
+            <p className={styles.emptyTitle}>Connect a source to get started</p>
+            <p className={styles.emptySubtitle}>
+              Head to Settings to connect Canvas or Google. Rumbo will start pulling in
+              your courses — it can take a few minutes after connecting.
+            </p>
           </div>
-        </section>
-      )}
+        )}
 
-      {!isLoading && overdue.length > 0 && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Overdue</h2>
-          <div className={styles.list}>
-            {overdue.map(task => renderTaskCard(task, handleDeleteClick, deletingId, true))}
+        {showIngestionPending && (
+          <div className={styles.empty}>
+            <p className={styles.emptyTitle}>We're pulling in your courses</p>
+            <p className={styles.emptySubtitle}>
+              This usually takes a few minutes — check back shortly.
+            </p>
           </div>
-        </section>
-      )}
+        )}
+
+        {showCaughtUp && (
+          <div className={styles.empty}>
+            <p className={styles.emptyTitle}>You're all caught up</p>
+            <p className={styles.emptySubtitle}>
+              Nothing due in the next 14 days.
+            </p>
+          </div>
+        )}
+
+        {!isLoading && recentCount > 0 && (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Recently added</h2>
+            <div className={styles.list}>
+              {(recentlyAdded.data ?? []).map(event => renderCard(event, courses))}
+            </div>
+          </section>
+        )}
+
+        {!isLoading && calendarCount > 0 && (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Today</h2>
+            <div className={styles.list}>
+              {(todaysCalendar.data ?? []).map(event => {
+                const payload = event.raw_payload as Record<string, unknown>
+                const title = (typeof payload.summary === 'string' && payload.summary)
+                  || (typeof payload.title === 'string' && payload.title)
+                  || 'Calendar event'
+                return (
+                  <div key={event.id} className={styles.calendarItem}>
+                    <span className={styles.calendarTime}>{formatCalendarTime(event.timestamp)}</span>
+                    <span className={styles.calendarTitle}>{title}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {!isLoading && upcomingCount > 0 && (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Upcoming</h2>
+            {Array.from(grouped.entries()).map(([courseKey, events]) => {
+              const items = events as NormalizedEvent[]
+              return (
+                <div key={courseKey} className={styles.courseGroup}>
+                  <h3 className={styles.courseTitle}>{courseNameFromEvent(items[0], courses)}</h3>
+                  <div className={styles.list}>
+                    {items.map(event => renderCard(event, courses))}
+                  </div>
+                </div>
+              )
+            })}
+          </section>
+        )}
+
+        {!isLoading && stillOpenCount > 0 && (
+          <section className={styles.section}>
+            <button
+              type="button"
+              className={styles.stillOpenToggle}
+              onClick={() => setStillOpenExpanded(v => !v)}
+              aria-expanded={stillOpenExpanded}
+            >
+              <span className={styles.sectionTitle}>Still open ({stillOpenCount})</span>
+              <span className={styles.stillOpenChevron}>{stillOpenExpanded ? '−' : '+'}</span>
+            </button>
+            {stillOpenExpanded && (
+              <div className={styles.list}>
+                {(stillOpen.data ?? []).map(event => renderCard(event, courses, true))}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </div>
   )

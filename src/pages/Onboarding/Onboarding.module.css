@@ -316,3 +316,24 @@
   font-size: 13px;
   color: var(--color-error);
 }
+
+.canvasInstructions {
+  padding: 12px 14px;
+  background: var(--color-bg-page);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+.helpText {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

@@ -27,6 +27,30 @@ function redirectWithError(path: string, reason: string): Response {
   return Response.redirect(appRedirect(withQuery(path, { calendar: 'error', reason: safeReason })), 302)
 }
 
+async function kickFirstIngest(userId: string): Promise<void> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  const cronSecret = Deno.env.get('CRON_SECRET') ?? ''
+  const isDev = Deno.env.get('SUPABASE_ENV') === 'dev'
+  if (!supabaseUrl || !serviceKey) return
+  if (!cronSecret && !isDev) {
+    console.warn('[calendar-oauth] Skipping first-ingest: CRON_SECRET not set (and not dev)')
+    return
+  }
+  const response = await fetch(`${supabaseUrl}/functions/v1/calendar-ingest`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${serviceKey}`,
+      'x-cron-secret': cronSecret,
+    },
+    body: JSON.stringify({ user_id: userId }),
+  })
+  if (!response.ok) {
+    console.warn(`[calendar-oauth] first-ingest returned ${response.status}`)
+  }
+}
+
 function encodeState(payload: Record<string, string>): string {
   return btoa(JSON.stringify(payload))
 }
@@ -64,17 +88,24 @@ Deno.serve(async (req) => {
       const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
       const admin = createAdminClient()
-      const row: Record<string, string> = {
+      const scopes = (tokens.scope ?? '').split(' ').filter(Boolean)
+      // deno-lint-ignore no-explicit-any
+      const row: Record<string, any> = {
         user_id: userId,
         provider: 'google',
         access_token: tokens.access_token,
         expires_at: expiresAt,
+        scopes,
       }
       // Google omits refresh_token on re-consent; keep the existing one.
       if (tokens.refresh_token) {
         row.refresh_token = tokens.refresh_token
       }
       await admin.from('calendar_connections').upsert(row, { onConflict: 'user_id,provider' })
+
+      // Fire-and-forget first-ingest so the dashboard populates without waiting
+      // for the next cron tick. Copy of canvas-verify's kickFirstIngest pattern.
+      kickFirstIngest(userId).catch(err => console.warn('[calendar-oauth] first-ingest kick failed:', err))
 
       const returnTo = state.return_to ?? '/settings'
       return Response.redirect(appRedirect(withQuery(returnTo, { calendar: 'connected' })), 302)

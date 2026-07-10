@@ -5,9 +5,19 @@ import RumboLogo from '../RumboLogo/RumboLogo'
 import styles from './Sidebar.module.css'
 
 export default function Sidebar() {
-  const { profile } = useAuth()
+  const { session, profile } = useAuth()
 
-  const initials = getInitials(profile?.name, profile?.email)
+  const composedName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim()
+  const meta = session?.user?.user_metadata ?? {}
+  const metaComposed = [meta.first_name, meta.last_name].filter((p): p is string => typeof p === 'string' && Boolean(p.trim())).join(' ').trim()
+  const displayName =
+    composedName ||
+    profile?.name?.trim() ||
+    metaComposed ||
+    (typeof meta.name === 'string' ? meta.name : '') ||
+    (typeof meta.full_name === 'string' ? meta.full_name : '') ||
+    ''
+  const initials = getInitials(displayName, profile?.email ?? session?.user?.email ?? null)
 
   return (
     <aside className={styles.sidebar}>
@@ -22,6 +32,18 @@ export default function Sidebar() {
           className={({ isActive }) => [styles.navLink, isActive ? styles.navLinkActive : ''].join(' ')}
         >
           Tasks
+        </NavLink>
+        <NavLink
+          to="/courses"
+          className={({ isActive }) => [styles.navLink, isActive ? styles.navLinkActive : ''].join(' ')}
+        >
+          Courses
+        </NavLink>
+        <NavLink
+          to="/brain"
+          className={({ isActive }) => [styles.navLink, isActive ? styles.navLinkActive : ''].join(' ')}
+        >
+          Brain
         </NavLink>
         <NavLink
           to="/settings"
@@ -41,7 +63,7 @@ export default function Sidebar() {
       <div className={styles.user}>
         <div className={styles.avatar}>{initials}</div>
         <span className={styles.username}>
-          {profile?.name?.trim() || profile?.email?.split('@')[0] || ''}
+          {displayName || profile?.email?.split('@')[0] || session?.user?.email?.split('@')[0] || ''}
         </span>
       </div>
     </aside>

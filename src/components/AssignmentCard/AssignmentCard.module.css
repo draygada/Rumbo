@@ -1,0 +1,74 @@
+.card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.card:hover {
+  border-color: var(--color-border-hover);
+}
+
+.cardStale {
+  opacity: 0.85;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.title {
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--color-text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceBadge {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+.dot {
+  font-size: var(--text-caption);
+  color: var(--color-border);
+}
+
+@media (max-width: 480px) {
+  .top {
+    flex-wrap: wrap;
+  }
+
+  .title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+  }
+}

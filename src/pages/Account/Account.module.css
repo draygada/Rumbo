@@ -171,6 +171,69 @@
   color: var(--color-text-muted);
 }
 
+.sectionDesc {
+  font-size: var(--text-label);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  max-width: 52ch;
+}
+
+.fieldRow {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.saveButton {
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.saveButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.fieldMessage {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .signOutButton {
   height: 40px;
   background: var(--color-bg-surface);

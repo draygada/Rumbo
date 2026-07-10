@@ -7,6 +7,9 @@ export type UserTier = 'free' | 'premium'
 export interface User {
   id: string
   email: string
+  first_name: string | null
+  last_name: string | null
+  /** Generated column: `first_name last_name` (or null if both blank). */
   name: string | null
   tier: UserTier
   onboarding_step: string

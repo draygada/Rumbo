@@ -20,7 +20,8 @@ function getSignupErrorMessage(err: unknown): string {
 
 export default function SignUp() {
   const navigate = useNavigate()
-  const [name, setName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -30,6 +31,11 @@ export default function SignUp() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    if (!firstName.trim() || !lastName.trim()) {
+      setError('Please enter both a first and last name.')
+      return
+    }
 
     if (password !== confirm) {
       setError('Passwords do not match')
@@ -45,10 +51,11 @@ export default function SignUp() {
     try {
       console.log('[SignUp] Submit started', {
         email: email.trim(),
-        hasName: Boolean(name.trim()),
+        hasFirst: Boolean(firstName.trim()),
+        hasLast: Boolean(lastName.trim()),
         passwordLength: password.length,
       })
-      await signUp(email, password, name)
+      await signUp(email, password, firstName, lastName)
       console.log('[SignUp] Navigate to onboarding')
       navigate('/onboarding')
     } catch (err) {
@@ -61,22 +68,37 @@ export default function SignUp() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.card}>
+      <main className={styles.card} aria-labelledby="signup-heading">
         <RumboLogo variant="auth" />
-        <p className={styles.subtitle}>Create your account</p>
+        <h1 id="signup-heading" className={styles.subtitle}>Create your account</h1>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.field}>
-            <label htmlFor="name" className={styles.label}>Name</label>
-            <input
-              id="name"
-              type="text"
-              className={styles.input}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoComplete="name"
-            />
+          <div className={styles.nameRow}>
+            <div className={styles.field}>
+              <label htmlFor="first-name" className={styles.label}>First name</label>
+              <input
+                id="first-name"
+                type="text"
+                className={styles.input}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+                autoComplete="given-name"
+              />
+            </div>
+
+            <div className={styles.field}>
+              <label htmlFor="last-name" className={styles.label}>Last name</label>
+              <input
+                id="last-name"
+                type="text"
+                className={styles.input}
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+                autoComplete="family-name"
+              />
+            </div>
           </div>
 
           <div className={styles.field}>
@@ -128,7 +150,7 @@ export default function SignUp() {
         <p className={styles.footer}>
           Already have an account? <Link to="/signin" className={styles.link}>Sign in</Link>
         </p>
-      </div>
+      </main>
     </div>
   )
 }

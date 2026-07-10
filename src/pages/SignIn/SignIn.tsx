@@ -43,9 +43,9 @@ export default function SignIn() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.card}>
+      <main className={styles.card} aria-labelledby="signin-heading">
         <RumboLogo variant="auth" />
-        <p className={styles.subtitle}>Sign in to your account</p>
+        <h1 id="signin-heading" className={styles.subtitle}>Sign in to your account</h1>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <div className={styles.field}>
@@ -84,7 +84,7 @@ export default function SignIn() {
         <p className={styles.footer}>
           Don't have an account? <Link to="/signup" className={styles.link}>Sign up</Link>
         </p>
-      </div>
+      </main>
     </div>
   )
 }

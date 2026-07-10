@@ -14,3 +14,6 @@ dist/
 
 # Claude Code internals
 .claude/
+
+# Design docs — symlinked in for Claude context, not tracked
+Rumbo-Design-Docs

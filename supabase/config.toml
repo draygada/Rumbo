@@ -17,3 +17,42 @@ verify_jwt = false
 
 [functions.delete-task]
 verify_jwt = true
+
+[functions.canvas-verify]
+verify_jwt = true
+
+[functions.canvas-ingest]
+verify_jwt = false
+
+[functions.calendar-ingest]
+verify_jwt = false
+
+[functions.calendar-webhook]
+verify_jwt = false
+
+[functions.calendar-renew]
+verify_jwt = false
+
+[functions.drive-ingest]
+verify_jwt = false
+
+[functions.drive-content-extract]
+verify_jwt = false
+
+[functions.manual-upload-process]
+verify_jwt = true
+
+[functions.manual-website-fetch]
+verify_jwt = true
+
+[functions.shadow-rebuild]
+verify_jwt = false
+
+[functions.brain-pipeline]
+verify_jwt = false
+
+[functions.brain-decay]
+verify_jwt = false
+
+[functions.canvas-file-extract]
+verify_jwt = false

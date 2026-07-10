@@ -2,7 +2,11 @@ import type { BusyInterval as TimeInterval } from './scheduler.ts'
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
-const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+// V0 scope: read-only Calendar + Drive as a single combined grant
+// (data-ingestion.md §2). Scheduler write path (createGoogleCalendarEvent etc.)
+// is deferred out of V0 — see Legacy/scheduler.md.
+const V0_GOOGLE_SCOPES =
+  'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive.readonly'
 
 export function getGoogleAuthUrl(redirectUri: string, state: string): string {
   const clientId = Deno.env.get('GOOGLE_CLIENT_ID')
@@ -12,7 +16,7 @@ export function getGoogleAuthUrl(redirectUri: string, state: string): string {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: `${CALENDAR_SCOPE} https://www.googleapis.com/auth/calendar.readonly`,
+    scope: V0_GOOGLE_SCOPES,
     access_type: 'offline',
     prompt: 'consent',
     state,
@@ -23,7 +27,7 @@ export function getGoogleAuthUrl(redirectUri: string, state: string): string {
 export async function exchangeGoogleCode(
   code: string,
   redirectUri: string,
-): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+): Promise<{ access_token: string; refresh_token: string; expires_in: number; scope?: string }> {
   const clientId = Deno.env.get('GOOGLE_CLIENT_ID')
   const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET')
   if (!clientId || !clientSecret) throw new Error('Missing Google OAuth credentials')

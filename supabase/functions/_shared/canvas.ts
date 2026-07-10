@@ -1,0 +1,437 @@
+// Canvas REST API adapter — pure functions returning parsed objects.
+// Reference: Rumbo-Design-Docs/External Sources/canvas.md
+//
+// The adapter is deliberately thin: no caching, no side effects, no DB writes.
+// Callers (canvas-verify, canvas-ingest) compose these helpers with the DB layer.
+
+export interface CanvasCredentials {
+  pat: string
+  baseUrl: string  // e.g. "stanford.instructure.com" — no scheme
+}
+
+export interface CanvasCourse {
+  id: number
+  name: string
+  course_code?: string
+  syllabus_body?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  term?: { name?: string } | null
+  workflow_state?: string
+}
+
+export interface CanvasAssignment {
+  id: number
+  name: string
+  description?: string | null
+  due_at?: string | null
+  points_possible?: number | null
+  assignment_group_id?: number | null
+  submission_types?: string[]
+  updated_at: string
+  course_id: number
+  workflow_state?: string
+}
+
+export interface CanvasUser {
+  id: number
+  name: string
+  short_name?: string
+  primary_email?: string
+}
+
+export interface CanvasFile {
+  id: number
+  display_name?: string
+  filename?: string
+  'content-type'?: string
+  size?: number
+  url?: string
+  folder_id?: number
+  created_at?: string
+  updated_at?: string
+  locked?: boolean
+  hidden?: boolean
+  workflow_state?: string
+}
+
+export type CanvasFileCategory = 'syllabus' | 'rubric' | 'project' | 'study'
+
+// Pull files that look like signal for the knowledge graph. Order matters —
+// a filename like "Final Project Rubric.pdf" should classify as `rubric`
+// (grading criteria), not `project` (spec). Highest-authority first.
+const FILE_HEURISTICS: Array<{ category: CanvasFileCategory; pattern: RegExp }> = [
+  {
+    category: 'syllabus',
+    pattern: /\bsyllabus\b|\bcourse[\s_-]*(info|overview|introduction|intro)\b|\bwelcome\b|\borientation\b/i,
+  },
+  {
+    category: 'rubric',
+    pattern: /\brubric\b|\bgrading[\s_-]*(criteria|guide|policy|policies|standard)?\b|\bguidelines?\b|\bpolicy\b|\bpolicies\b|\bexpectations?\b/i,
+  },
+  {
+    category: 'project',
+    pattern: /\bproject\b|\bfinal[\s_-]*project\b|\bcapstone\b|\bmilestone\b/i,
+  },
+  {
+    category: 'study',
+    pattern: /\bmidterm\b|\bfinal[\s_-]*exam\b|\bstudy[\s_-]*guide\b|\bpractice[\s_-]*(exam|midterm|final|test|quiz)\b|\breview[\s_-]*(sheet|packet|session)\b|\breading[\s_-]*list\b|\bbibliography\b|\b(course[\s_-]*)?schedule\b/i,
+  },
+]
+
+export function classifyCanvasFile(file: CanvasFile): CanvasFileCategory | null {
+  const state = (file.workflow_state ?? '').toLowerCase()
+  if (state === 'deleted' || state === 'locked' || file.locked || file.hidden) return null
+  const haystack = `${file.display_name ?? ''} ${file.filename ?? ''}`
+  for (const { category, pattern } of FILE_HEURISTICS) {
+    if (pattern.test(haystack)) return category
+  }
+  return null
+}
+
+// -----------------------------------------------------------------------------
+// URL + fetch helpers
+// -----------------------------------------------------------------------------
+
+function normalizeBaseUrl(input: string): string {
+  const trimmed = input.trim().replace(/^https?:\/\//, '').replace(/\/$/, '')
+  return trimmed
+}
+
+function apiUrl(baseUrl: string, path: string, params?: Record<string, string | string[]>): string {
+  const host = normalizeBaseUrl(baseUrl)
+  const url = new URL(`https://${host}/api/v1${path}`)
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (Array.isArray(v)) {
+        for (const item of v) url.searchParams.append(k, item)
+      } else {
+        url.searchParams.set(k, v)
+      }
+    }
+  }
+  return url.toString()
+}
+
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null
+  for (const part of linkHeader.split(',')) {
+    const [urlPart, ...relParts] = part.split(';')
+    const rel = relParts.join(';')
+    if (rel.includes('rel="next"')) {
+      return urlPart.trim().replace(/^</, '').replace(/>$/, '')
+    }
+  }
+  return null
+}
+
+// Public error type so callers can distinguish auth failure (expire the token)
+// from transient failures (retry) and rate limits (backoff).
+export type CanvasErrorKind = 'auth' | 'network' | 'server' | 'rate_limit' | 'unknown'
+
+export class CanvasError extends Error {
+  constructor(message: string, public readonly status: number, public readonly kind: CanvasErrorKind) {
+    super(message)
+  }
+}
+
+async function canvasFetch(url: string, pat: string): Promise<Response> {
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: { Authorization: `Bearer ${pat}`, Accept: 'application/json' },
+    })
+  } catch (err) {
+    throw new CanvasError(`Network error: ${err instanceof Error ? err.message : String(err)}`, 0, 'network')
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new CanvasError(`Canvas auth failed (${response.status})`, response.status, 'auth')
+  }
+  if (response.status === 429) {
+    throw new CanvasError(`Canvas rate limited`, 429, 'rate_limit')
+  }
+  if (response.status >= 500) {
+    throw new CanvasError(`Canvas server error (${response.status})`, response.status, 'server')
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new CanvasError(`Canvas request failed (${response.status}): ${body.slice(0, 200)}`, response.status, 'unknown')
+  }
+  return response
+}
+
+async function paginate<T>(startUrl: string, pat: string, cap = 20): Promise<T[]> {
+  const results: T[] = []
+  let url: string | null = startUrl
+  let pages = 0
+  while (url && pages < cap) {
+    const response = await canvasFetch(url, pat)
+    const batch = (await response.json()) as T[]
+    if (Array.isArray(batch)) {
+      results.push(...batch)
+    }
+    url = parseNextLink(response.headers.get('Link'))
+    pages += 1
+  }
+  return results
+}
+
+// -----------------------------------------------------------------------------
+// High-level endpoints
+// -----------------------------------------------------------------------------
+
+export async function getSelf(creds: CanvasCredentials): Promise<CanvasUser> {
+  const response = await canvasFetch(apiUrl(creds.baseUrl, '/users/self'), creds.pat)
+  return (await response.json()) as CanvasUser
+}
+
+export async function listCourses(creds: CanvasCredentials): Promise<CanvasCourse[]> {
+  const url = apiUrl(creds.baseUrl, '/courses', {
+    'enrollment_state[]': ['active', 'completed'],
+    // include[] pulls extra fields per course:
+    //   term          - term.name / start_at / end_at, used to filter archives
+    //   syllabus_body - the syllabus text (source_type: canvas_syllabus)
+    //   total_scores  - drives enrollments[] with real state, needed for
+    //                   isCanvasCourseCurrent to detect completed enrollments
+    'include[]': ['term', 'syllabus_body', 'total_scores'],
+    per_page: '50',
+  })
+  return await paginate<CanvasCourse>(url, creds.pat)
+}
+
+export async function listAssignments(creds: CanvasCredentials, courseId: number): Promise<CanvasAssignment[]> {
+  const url = apiUrl(creds.baseUrl, `/courses/${courseId}/assignments`, {
+    order_by: 'due_at',
+    per_page: '50',
+  })
+  const items = await paginate<CanvasAssignment>(url, creds.pat)
+  // Canvas doesn't always echo course_id on the assignment when fetched by-course.
+  return items.map(a => ({ ...a, course_id: a.course_id ?? courseId }))
+}
+
+// Fetches the file's fresh metadata (URL contains a short-lived verifier), then
+// downloads the file bytes. Returns null on any failure so the caller can just
+// skip that file and continue.
+export async function downloadCanvasFile(
+  creds: CanvasCredentials,
+  fileId: number,
+): Promise<{ bytes: Uint8Array; mime: string; size: number; displayName: string } | null> {
+  try {
+    const metaRes = await canvasFetch(apiUrl(creds.baseUrl, `/files/${fileId}`), creds.pat)
+    const meta = (await metaRes.json()) as CanvasFile
+    if (!meta.url) return null
+    // Download the actual bytes. Canvas download URLs contain a verifier token
+    // and don't need the Authorization header, but sending it is harmless.
+    const dlRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${creds.pat}` } })
+    if (!dlRes.ok) return null
+    const ab = await dlRes.arrayBuffer()
+    return {
+      bytes: new Uint8Array(ab),
+      mime: meta['content-type'] || 'application/octet-stream',
+      size: meta.size ?? ab.byteLength,
+      displayName: meta.display_name || meta.filename || `file_${fileId}`,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function listFiles(creds: CanvasCredentials, courseId: number): Promise<CanvasFile[]> {
+  const url = apiUrl(creds.baseUrl, `/courses/${courseId}/files`, {
+    per_page: '100',
+  })
+  try {
+    return await paginate<CanvasFile>(url, creds.pat)
+  } catch (err) {
+    // Some Canvas installs restrict the files endpoint per-role. Treat as
+    // no-files rather than blowing up the whole course sync.
+    if (err instanceof CanvasError && (err.kind === 'auth' || err.status === 403)) {
+      return []
+    }
+    throw err
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Normalization: Canvas payload → normalized_events row shape
+// -----------------------------------------------------------------------------
+
+function stripHtml(html: string | null | undefined): string {
+  if (!html) return ''
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export const INGESTION_PIPELINE_VERSION = 'ingestion-v0.1'
+
+// classification: 'academic' feeds the graph; 'administrative' is stored but
+// excluded from extraction. 'personal' / 'pending' / 'irrelevant' /
+// 'out_of_window' are used by other sources.
+export type NormalizedClassification =
+  | 'academic'
+  | 'administrative'
+  | 'personal'
+  | 'pending'
+  | 'irrelevant'
+  | 'out_of_window'
+
+export interface NormalizedRow {
+  user_id: string
+  source_type: string
+  external_id: string
+  timestamp: string | null
+  course_id: string | null
+  classification: NormalizedClassification
+  classification_source: 'heuristic'
+  raw_payload: unknown
+  normalized_text: string
+  pipeline_version: string
+}
+
+// Canonicalize repetitive assignment names so weekly participation / reading
+// response / discussion posts don't spawn N separate graph nodes (one per
+// week). Extraction sees the same normalized text across weeks and resolution
+// merges them into a single canonical concept.
+//
+// Original name is kept in raw_payload for provenance / dashboard display.
+export function canonicalizeAssignmentName(name: string): string {
+  const patterns: Array<{ pattern: RegExp; canonical: string }> = [
+    { pattern: /(week\s*\d+|w\d+|weekly|session\s*\d+|day\s*\d+)\s+(participation|attendance|show[\s\-_]*up|pre[\s\-_]*class|check[\s\-_]*in)/i, canonical: 'Weekly Participation' },
+    { pattern: /(week\s*\d+|w\d+|weekly)\s+(reading[\s\-_]*response|response|reflection)/i, canonical: 'Weekly Reading Response' },
+    { pattern: /(week\s*\d+|w\d+|weekly)\s+(discussion|forum|post|thread)/i, canonical: 'Weekly Discussion Post' },
+    { pattern: /(week\s*\d+|w\d+|weekly)\s+(quiz|check|assessment)/i, canonical: 'Weekly Quiz' },
+    { pattern: /(week\s*\d+|w\d+|weekly)\s+(reading|assignment)/i, canonical: 'Weekly Reading' },
+    // Standalone (no week prefix)
+    { pattern: /^\s*participation(\s*(assignment|task|score|grade))?\s*$/i, canonical: 'Participation' },
+    { pattern: /^\s*attendance(\s*(record|check|grade))?\s*$/i, canonical: 'Attendance' },
+    { pattern: /^\s*(pre|post)[\s\-_]*class(\s*(work|reading|assignment))?\s*$/i, canonical: 'Pre-Class Work' },
+  ]
+  for (const { pattern, canonical } of patterns) {
+    if (pattern.test(name)) return canonical
+  }
+  return name.trim()
+}
+
+// Assignment "signal" heuristic — only `academic` items enter the graph
+// (brain-extraction skips non-academic classifications). Administrative shells
+// with no due date, no description, no points, and no submission target are
+// preserved in normalized_events but never enrich the knowledge graph.
+export function classifyAssignmentSignal(assignment: CanvasAssignment): NormalizedClassification {
+  const state = (assignment.workflow_state ?? '').toLowerCase()
+  // Explicit non-published states = administrative.
+  if (state === 'unpublished' || state === 'deleted' || state === 'failed_to_import') {
+    return 'administrative'
+  }
+  const description = stripHtml(assignment.description ?? '').trim()
+  const hasDue = Boolean(assignment.due_at)
+  const hasDescription = description.length >= 30
+  const hasPoints = typeof assignment.points_possible === 'number' && assignment.points_possible >= 1
+  const submissionTypes = assignment.submission_types ?? []
+  const hasSubmission = submissionTypes.some(s => s && s !== 'none')
+  return (hasDue || hasDescription || hasPoints || hasSubmission) ? 'academic' : 'administrative'
+}
+
+export function normalizeCourse(userId: string, course: CanvasCourse): NormalizedRow {
+  const syllabusText = stripHtml(course.syllabus_body ?? '')
+  const parts = [
+    course.name,
+    course.course_code ? `(${course.course_code})` : '',
+    course.term?.name ?? '',
+  ].filter(Boolean)
+  return {
+    user_id: userId,
+    source_type: 'canvas_course',
+    external_id: `canvas_course_${course.id}`,
+    timestamp: course.start_at ?? null,
+    course_id: `canvas_course_${course.id}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: { ...course, syllabus_available: Boolean(syllabusText) },
+    normalized_text: parts.join(' '),
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+export function normalizeSyllabus(userId: string, course: CanvasCourse): NormalizedRow | null {
+  const text = stripHtml(course.syllabus_body ?? '')
+  if (!text) return null
+  return {
+    user_id: userId,
+    source_type: 'canvas_syllabus',
+    external_id: `canvas_syllabus_${course.id}`,
+    timestamp: course.start_at ?? null,
+    course_id: `canvas_course_${course.id}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: { syllabus_body: course.syllabus_body, course_id: course.id },
+    normalized_text: `${course.name}\n\n${text}`,
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+const FILE_CATEGORY_SOURCE_TYPE: Record<CanvasFileCategory, string> = {
+  syllabus: 'canvas_file_syllabus',
+  rubric:   'canvas_file_rubric',
+  project:  'canvas_file_project',
+  study:    'canvas_file_study',
+}
+
+// Metadata-only ingest for a signal-carrying Canvas file. Content extraction
+// (PDF → text) is a follow-up; for now the graph sees filename + course link,
+// which is enough to create the file node and connect it to the course.
+export function normalizeCanvasFile(userId: string, file: CanvasFile, category: CanvasFileCategory, courseId: number): NormalizedRow {
+  const displayName = file.display_name || file.filename || `Canvas file ${file.id}`
+  return {
+    user_id: userId,
+    source_type: FILE_CATEGORY_SOURCE_TYPE[category],
+    external_id: `canvas_file_${file.id}`,
+    timestamp: file.updated_at ?? file.created_at ?? null,
+    course_id: `canvas_course_${courseId}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: { ...file, canvas_course_id: courseId, file_category: category },
+    normalized_text: displayName,
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+export function normalizeAssignment(userId: string, assignment: CanvasAssignment): NormalizedRow {
+  const description = stripHtml(assignment.description ?? '')
+  const pointsSuffix = assignment.points_possible != null ? ` Worth ${assignment.points_possible} points.` : ''
+  const canonicalName = canonicalizeAssignmentName(assignment.name)
+  return {
+    user_id: userId,
+    source_type: 'canvas_assignment',
+    external_id: `canvas_assignment_${assignment.id}`,
+    timestamp: assignment.due_at ?? null,
+    course_id: `canvas_course_${assignment.course_id}`,
+    classification: classifyAssignmentSignal(assignment),
+    classification_source: 'heuristic',
+    // raw_payload keeps the original name; rumbo_canonical_name is the
+    // extraction-facing form. That way the dashboard still shows the real
+    // "Week 3 Participation" while the graph sees "Weekly Participation".
+    raw_payload: { ...assignment, rumbo_canonical_name: canonicalName },
+    normalized_text: `${canonicalName}. ${description}${pointsSuffix}`.trim(),
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Enrollment window: current + prior academic year
+// -----------------------------------------------------------------------------
+
+export function courseInEnrollmentWindow(course: CanvasCourse, now = new Date()): boolean {
+  if (!course.end_at) return true  // no end_at = keep (ongoing)
+  const endAt = new Date(course.end_at)
+  if (Number.isNaN(endAt.getTime())) return true
+  const cutoff = new Date(now.getFullYear() - 1, 8, 1)  // Sep 1 of prior year
+  return endAt >= cutoff
+}

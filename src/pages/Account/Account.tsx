@@ -1,18 +1,66 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth, signOut } from '../../hooks/useAuth'
-import { useTasks } from '../../hooks/useTasks'
 import { getInitials } from '../../lib/initials'
+import { supabase } from '../../lib/supabase'
 import styles from './Account.module.css'
 
-const FREE_TASK_LIMIT = 5
-
 export default function Account() {
-  const { profile } = useAuth()
-  const { data: tasks } = useTasks()
+  const { session, profile } = useAuth()
   const navigate = useNavigate()
 
-  const taskCount = tasks?.length ?? 0
-  const initials = getInitials(profile?.name, profile?.email)
+  const composedName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim()
+  const meta = session?.user?.user_metadata ?? {}
+  const metaComposed = [meta.first_name, meta.last_name].filter((p): p is string => typeof p === 'string' && Boolean(p.trim())).join(' ').trim()
+  const displayName =
+    composedName ||
+    profile?.name?.trim() ||
+    metaComposed ||
+    (typeof meta.name === 'string' ? meta.name : '') ||
+    (typeof meta.full_name === 'string' ? meta.full_name : '') ||
+    ''
+  const initials = getInitials(displayName, profile?.email ?? session?.user?.email ?? null)
+
+  const [fieldOfStudy, setFieldOfStudy] = useState('')
+  const [fieldMessage, setFieldMessage] = useState<string | null>(null)
+  const [savingField, setSavingField] = useState(false)
+
+  useEffect(() => {
+    if (!session) return
+    let ignore = false
+    ;(async () => {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('field_of_study')
+          .eq('id', session.user.id)
+          .maybeSingle()
+        if (ignore) return
+        setFieldOfStudy(current => current ? current : (data?.field_of_study as string | undefined) ?? '')
+      } catch {
+        // leave empty — user can type it in.
+      }
+    })()
+    return () => { ignore = true }
+  }, [session])
+
+  async function handleFieldSave() {
+    if (!session) return
+    setSavingField(true)
+    setFieldMessage(null)
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ field_of_study: fieldOfStudy.trim() || null })
+        .eq('id', session.user.id)
+      if (error) throw error
+      setFieldMessage('Saved.')
+    } catch (err) {
+      setFieldMessage(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSavingField(false)
+    }
+  }
 
   async function handleSignOut() {
     await signOut()
@@ -30,36 +78,38 @@ export default function Account() {
           <div className={styles.userRow}>
             <div className={styles.avatar}>{initials}</div>
             <div>
-              <p className={styles.username}>{profile?.name}</p>
-              <p className={styles.email}>{profile?.email}</p>
+              <p className={styles.username}>{displayName || profile?.email || session?.user?.email}</p>
+              <p className={styles.email}>{profile?.email ?? session?.user?.email}</p>
             </div>
           </div>
         </section>
 
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Plan</h2>
-          {profile?.tier === 'free' ? (
-            <div className={styles.tierCard}>
-              <div className={styles.tierRow}>
-                <span className={styles.tierBadge}>Free</span>
-                <span className={styles.tierUsage}>{taskCount} / {FREE_TASK_LIMIT} tasks used</span>
-              </div>
-              <div className={styles.usageBar}>
-                <div
-                  className={styles.usageFill}
-                  style={{ width: `${Math.min((taskCount / FREE_TASK_LIMIT) * 100, 100)}%` }}
-                />
-              </div>
-              <button className={styles.upgradeButton}>
-                Upgrade to Premium — $6.99/mo
-              </button>
-            </div>
-          ) : (
-            <div className={styles.tierCard}>
-              <span className={styles.tierBadgePremium}>Premium</span>
-              <p className={styles.premiumNote}>Unlimited tasks. AI features unlocked.</p>
-            </div>
-          )}
+          <h2 className={styles.sectionTitle}>Field of study</h2>
+          <p className={styles.sectionDesc}>
+            Used to personalize copy. Doesn't affect what Rumbo ingests.
+          </p>
+          <div className={styles.fieldRow}>
+            <label className={styles.srOnly} htmlFor="field-of-study">Field of study</label>
+            <input
+              id="field-of-study"
+              type="text"
+              className={styles.input}
+              placeholder="e.g. Computer Science"
+              value={fieldOfStudy}
+              onChange={e => setFieldOfStudy(e.target.value)}
+              disabled={savingField}
+            />
+            <button
+              type="button"
+              className={styles.saveButton}
+              onClick={handleFieldSave}
+              disabled={savingField}
+            >
+              {savingField ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+          {fieldMessage && <p className={styles.fieldMessage} role="status" aria-live="polite">{fieldMessage}</p>}
         </section>
 
         <section className={styles.section}>

@@ -2,9 +2,19 @@ import { useState, useRef, useEffect, FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
-import { startGoogleCalendarConnect, getGoogleCalendarConnected } from '../../lib/calendar'
-import { WorkerType } from '../../types'
+import { startGoogleCalendarConnect, getGoogleCalendarConnected, getGoogleCalendarScopesOk } from '../../lib/calendar'
+import CanvasConnect from '../../components/CanvasConnect/CanvasConnect'
 import styles from './Onboarding.module.css'
+
+// V0 onboarding — see Rumbo-Design-Docs/Frontend/onboarding.md.
+// Stage 1: Field of study
+// Stage 2: Canvas PAT + base URL (calls canvas-verify with save:true)
+// Stage 3: Google Calendar connect (reuses existing OAuth)
+// Stage 4: Manual courses (skippable stub for V0)
+//
+// The scheduler-era worker-type + unavailable-hours stages are removed.
+// A learning_profile row is still created with default scheduler values as a
+// compatibility carry (LLD §13, Legacy/scheduler.md).
 
 const FIELDS_OF_STUDY = [
   'Anthropology', 'Architecture', 'Art', 'Biology', 'Business',
@@ -17,42 +27,11 @@ const FIELDS_OF_STUDY = [
 
 const OTHER_FIELD = 'Other'
 
-const PEAK_HOUR_SEEDS: Record<WorkerType, number[]> = {
-  early_bird: [5, 6, 7, 8],
-  morning: [9, 10, 11],
-  afternoon: [12, 13, 14, 15, 16, 17, 18],
-  night_owl: [19, 20, 21, 22, 23],
-}
-
-function parseHour(hhmm: string): number {
-  return parseInt(hhmm.split(':')[0], 10)
-}
-
-function buildPeakHourMap(
-  workerType: WorkerType,
-  unavailableBeforeHour: number,
-  unavailableAfterHour: number,
-): { hour: number; score: number }[] {
-  const peakHours = new Set(PEAK_HOUR_SEEDS[workerType])
-  return Array.from({ length: 24 }, (_, hour) => {
-    if (hour < unavailableBeforeHour || hour >= unavailableAfterHour) return { hour, score: 0 }
-    if (peakHours.has(hour)) return { hour, score: 0.7 }
-    return { hour, score: 0.3 }
-  })
-}
-
-const WORKER_OPTIONS: { value: WorkerType; label: string; hours: string }[] = [
-  { value: 'early_bird', label: 'Early Bird', hours: '5am – 9am' },
-  { value: 'morning', label: 'Morning', hours: '9am – 12pm' },
-  { value: 'afternoon', label: 'Afternoon', hours: '12pm – 7pm' },
-  { value: 'night_owl', label: 'Night Owl', hours: '7pm – 12am' },
-]
-
 function mapOnboardingDbError(err: unknown): string {
   if (!(err instanceof Error)) return 'Something went wrong'
   const message = err.message.toLowerCase()
   if (
-    message.includes('relation') && message.includes('does not exist') ||
+    (message.includes('relation') && message.includes('does not exist')) ||
     message.includes('learning_profile')
   ) {
     return 'Database setup incomplete: learning_profile table is missing. Run Supabase migrations, then retry onboarding.'
@@ -65,16 +44,22 @@ export default function Onboarding() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [stage, setStage] = useState(1)
-  const [calendarConnected, setCalendarConnected] = useState(false)
-  const [calendarBusy, setCalendarBusy] = useState(false)
-  const [workerType, setWorkerType] = useState<WorkerType | null>(null)
-  const [unavailableBefore, setUnavailableBefore] = useState('08:00')
-  const [unavailableAfter, setUnavailableAfter] = useState('22:00')
+
+  // Stage 1 — field of study
   const [fieldQuery, setFieldQuery] = useState('')
   const [fieldOfStudy, setFieldOfStudy] = useState('')
   const [fieldIsOther, setFieldIsOther] = useState(false)
   const [otherField, setOtherField] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
+
+  // Stage 2 — Canvas (form state owned by <CanvasConnect />)
+  const [, setCanvasConnected] = useState(false)
+
+  // Stage 3 — Google
+  const [calendarConnected, setCalendarConnected] = useState(false)
+  const [calendarBusy, setCalendarBusy] = useState(false)
+
+  // General
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
@@ -93,118 +78,41 @@ export default function Onboarding() {
   }, [])
 
   useEffect(() => {
-    getGoogleCalendarConnected().then(setCalendarConnected)
+    // Onboarding treats a scopes-deficient connection as not-connected: the
+    // user re-consents to grant Drive scope before moving forward.
+    Promise.all([
+      getGoogleCalendarConnected().catch(() => false),
+      getGoogleCalendarScopesOk().catch(() => true),
+    ]).then(([connected, scopesOk]) => setCalendarConnected(connected && scopesOk))
   }, [])
 
+  // Return path from Google OAuth: land back on stage 3 with connected=true.
   useEffect(() => {
+    if (searchParams.get('calendar') === 'connected') {
+      setCalendarConnected(true)
+      setStage(3)
+      const next = new URLSearchParams(searchParams)
+      next.delete('calendar')
+      next.delete('reason')
+      setSearchParams(next, { replace: true })
+    }
     if (searchParams.get('stage') === 'calendar') {
-      setStage(4)
+      setStage(3)
       const next = new URLSearchParams(searchParams)
       next.delete('stage')
       setSearchParams(next, { replace: true })
     }
   }, [searchParams, setSearchParams])
 
-  useEffect(() => {
-    if (searchParams.get('calendar') === 'connected') {
-      setCalendarConnected(true)
-      setStage(4)
-      if (!finalizedRef.current) {
-        finalizedRef.current = true
-        void finalizeOnboarding()
-      }
-      const next = new URLSearchParams(searchParams)
-      next.delete('calendar')
-      next.delete('reason')
-      setSearchParams(next, { replace: true })
-    }
-  }, [searchParams, setSearchParams])
-
-  async function handleGoogleConnect() {
-    setCalendarBusy(true)
-    setError(null)
-    try {
-      await startGoogleCalendarConnect('/onboarding?stage=calendar')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect calendar')
-    } finally {
-      setCalendarBusy(false)
-    }
-  }
-
   const filteredFields = FIELDS_OF_STUDY.filter(f =>
-    f.toLowerCase().includes(fieldQuery.toLowerCase())
+    f.toLowerCase().includes(fieldQuery.toLowerCase()),
   )
   const showOtherOption =
     !fieldQuery || OTHER_FIELD.toLowerCase().includes(fieldQuery.toLowerCase())
 
-  async function persistOnboardingData() {
-    if (!session) throw new Error('Session expired — please sign in again.')
-    if (!workerType) throw new Error('Please select your worker type.')
-
-    const studyValue = fieldIsOther
-      ? otherField.trim() || null
-      : fieldOfStudy || fieldQuery.trim() || null
-
-    const unavailableBeforeHour = parseHour(unavailableBefore)
-    const unavailableAfterHour = parseHour(unavailableAfter)
-
-    const profilePayload = {
-      user_id: session.user.id,
-      unavailable_before: unavailableBeforeHour,
-      unavailable_after: unavailableAfterHour,
-      peak_hour_map: buildPeakHourMap(workerType, unavailableBeforeHour, unavailableAfterHour),
-      block_ceiling_mins: 60,
-      target_block_mins: 45,
-      distribution_preference: 'even',
-      deadline_proximity_buckets: {
-        early_avg: 3.0, middle_avg: 3.0, late_avg: 3.0,
-        early_count: 0, middle_count: 0, late_count: 0,
-      },
-      urgency_threshold: 2.0,
-      shallow_before_deep: true,
-      profile_stage: 1,
-      total_reflections: 0,
-      ceiling_last_adjusted_at: null,
-      ceiling_adjustment_sessions: 0,
-    }
-
-    // Avoid relying on DB-specific upsert constraints during onboarding:
-    // try update first, then insert if the user has no profile row yet.
-    const { data: updatedRows, error: updateError } = await supabase
-      .from('learning_profile')
-      .update(profilePayload)
-      .eq('user_id', session.user.id)
-      .select('id')
-
-    if (updateError) throw updateError
-
-    if (!updatedRows || updatedRows.length === 0) {
-      const { error: insertError } = await supabase
-        .from('learning_profile')
-        .insert(profilePayload)
-      if (insertError) throw insertError
-    }
-
-    await ensureUserRow()
-
-    const { data: userRows, error: userError } = await supabase
-      .from('users')
-      .update({
-        onboarding_q1: workerType,
-        onboarding_q2_before: unavailableBefore,
-        onboarding_q2_after: unavailableAfter,
-        field_of_study: studyValue,
-        onboarding_step: 'calendar',
-        onboarding_completed: false,
-      })
-      .eq('id', session.user.id)
-      .select('id')
-    if (userError) throw userError
-    if (!userRows || userRows.length === 0) {
-      throw new Error('Could not update user onboarding state')
-    }
-  }
+  // -----------------------------------------------------------------
+  // Persistence
+  // -----------------------------------------------------------------
 
   async function ensureUserRow() {
     if (!session) throw new Error('Session expired — please sign in again.')
@@ -217,54 +125,97 @@ export default function Onboarding() {
     if (existing) return
 
     const email = session.user.email ?? null
-    const name =
-      typeof session.user.user_metadata?.name === 'string'
-        ? (session.user.user_metadata.name as string)
+    const meta = session.user.user_metadata ?? {}
+    const first =
+      typeof meta.first_name === 'string' && meta.first_name.trim()
+        ? meta.first_name.trim()
+        : typeof meta.name === 'string'
+        ? meta.name.trim().split(/\s+/)[0] ?? null
+        : null
+    const last =
+      typeof meta.last_name === 'string' && meta.last_name.trim()
+        ? meta.last_name.trim()
+        : typeof meta.name === 'string' && meta.name.trim().includes(' ')
+        ? meta.name.trim().split(/\s+/).slice(1).join(' ')
         : null
 
     const { error: insertError } = await supabase.from('users').insert({
       id: session.user.id,
       email,
-      name,
-      tier: 'free',
+      first_name: first,
+      last_name: last,
       onboarding_step: 'start',
       onboarding_completed: false,
     })
     if (insertError) throw insertError
   }
 
-  async function finalizeOnboarding() {
+  // Ensure a learning_profile row exists with default scheduler values.
+  // Compat carry per LLD §13 — the row is not used in V0 but downstream code
+  // expecting it should not blow up.
+  async function ensureLearningProfileRow() {
     if (!session) throw new Error('Session expired — please sign in again.')
-    setFinalizing(true)
+
+    const { data: existing, error: selectError } = await supabase
+      .from('learning_profile')
+      .select('id')
+      .eq('user_id', session.user.id)
+      .maybeSingle()
+    if (selectError) throw selectError
+    if (existing) return
+
+    const defaultPeakHours = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      score: hour >= 9 && hour < 22 ? 0.5 : 0,
+    }))
+
+    const { error: insertError } = await supabase.from('learning_profile').insert({
+      user_id: session.user.id,
+      unavailable_before: 8,
+      unavailable_after: 22,
+      peak_hour_map: defaultPeakHours,
+      block_ceiling_mins: 60,
+      target_block_mins: 45,
+      distribution_preference: 'even',
+      deadline_proximity_buckets: {
+        early_avg: 3.0, middle_avg: 3.0, late_avg: 3.0,
+        early_count: 0, middle_count: 0, late_count: 0,
+      },
+      urgency_threshold: 2.0,
+      shallow_before_deep: true,
+      profile_stage: 1,
+      total_reflections: 0,
+    })
+    if (insertError) throw insertError
+  }
+
+  async function persistFieldOfStudy() {
+    if (!session) throw new Error('Session expired — please sign in again.')
+    const studyValue = fieldIsOther
+      ? otherField.trim() || null
+      : fieldOfStudy || fieldQuery.trim() || null
+
+    if (!studyValue) throw new Error('Please choose or enter a field of study.')
+
     await ensureUserRow()
-    const { data: userRows, error: userError } = await supabase
+
+    const { error: updateError } = await supabase
       .from('users')
       .update({
-        onboarding_step: 'complete',
-        onboarding_completed: true,
+        field_of_study: studyValue,
+        onboarding_step: 'canvas',
       })
       .eq('id', session.user.id)
-      .select('id')
-    if (userError) throw userError
-    if (!userRows || userRows.length === 0) {
-      throw new Error('Could not complete onboarding for this user')
-    }
-    window.location.replace('/dashboard')
+    if (updateError) throw updateError
   }
 
   async function handleStudySubmit(e: FormEvent) {
     e.preventDefault()
-    if (!session) {
-      setError('Session expired — please sign in again.')
-      setSaving(false)
-      return
-    }
     setError(null)
     setSaving(true)
-
     try {
-      await persistOnboardingData()
-      setStage(4)
+      await persistFieldOfStudy()
+      setStage(2)
     } catch (err) {
       setError(mapOnboardingDbError(err))
     } finally {
@@ -272,10 +223,70 @@ export default function Onboarding() {
     }
   }
 
+  // -----------------------------------------------------------------
+  // Stage 2 — Canvas connect (delegated to CanvasConnect component)
+  // -----------------------------------------------------------------
+
+  function handleCanvasConnected() {
+    setCanvasConnected(true)
+    setStage(3)
+  }
+
+  // -----------------------------------------------------------------
+  // Stage 3 — Google Calendar (existing OAuth)
+  // -----------------------------------------------------------------
+
+  async function handleGoogleConnect() {
+    setError(null)
+    setCalendarBusy(true)
+    try {
+      await startGoogleCalendarConnect('/onboarding?calendar=connected')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect Google')
+    } finally {
+      setCalendarBusy(false)
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Finalize
+  // -----------------------------------------------------------------
+
+  async function finalizeOnboarding() {
+    if (!session) throw new Error('Session expired — please sign in again.')
+    setFinalizing(true)
+    try {
+      await ensureUserRow()
+      // Compat carry: create learning_profile row here (not at stage 1) so
+      // abandoned onboardings don't leave orphan rows.
+      await ensureLearningProfileRow()
+      const { error: userError } = await supabase
+        .from('users')
+        .update({
+          onboarding_step: 'complete',
+          onboarding_completed: true,
+        })
+        .eq('id', session.user.id)
+      if (userError) throw userError
+      window.location.replace('/dashboard')
+    } catch (err) {
+      setFinalizing(false)
+      finalizedRef.current = false
+      throw err
+    }
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.container}>
-        <div className={styles.progress}>
+        <div
+          className={styles.progress}
+          role="progressbar"
+          aria-valuemin={1}
+          aria-valuemax={4}
+          aria-valuenow={stage}
+          aria-label={`Onboarding step ${stage} of 4`}
+        >
           {[1, 2, 3, 4].map(s => (
             <div
               key={s}
@@ -288,72 +299,12 @@ export default function Onboarding() {
           ))}
         </div>
 
-        {/* Stage 1 — Worker type */}
+        {/* Stage 1 — Field of study */}
         {stage === 1 && (
-          <div className={styles.stage}>
-            <h1 className={styles.title}>When do you work best?</h1>
-            <p className={styles.subtitle}>
-              We'll use this to seed your schedule. Rumbo learns your real patterns over time.
-            </p>
-            <div className={styles.cards}>
-              {WORKER_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={[styles.card, workerType === opt.value ? styles.cardSelected : ''].join(' ')}
-                  onClick={() => setWorkerType(opt.value)}
-                >
-                  <span className={styles.cardLabel}>{opt.label}</span>
-                  <span className={styles.cardHours}>{opt.hours}</span>
-                </button>
-              ))}
-            </div>
-            <button className={styles.button} disabled={!workerType} onClick={() => setStage(2)}>
-              Continue
-            </button>
-          </div>
-        )}
-
-        {/* Stage 2 — Unavailable hours */}
-        {stage === 2 && (
-          <div className={styles.stage}>
-            <h1 className={styles.title}>Set your work window</h1>
-            <p className={styles.subtitle}>
-              Rumbo will never schedule blocks outside this range.
-            </p>
-            <div className={styles.timeFields}>
-              <div className={styles.timeField}>
-                <label className={styles.label}>I never work before</label>
-                <input
-                  type="time"
-                  className={styles.timeInput}
-                  value={unavailableBefore}
-                  onChange={e => setUnavailableBefore(e.target.value)}
-                />
-              </div>
-              <div className={styles.timeField}>
-                <label className={styles.label}>I never work after</label>
-                <input
-                  type="time"
-                  className={styles.timeInput}
-                  value={unavailableAfter}
-                  onChange={e => setUnavailableAfter(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className={styles.actions}>
-              <button className={styles.buttonSecondary} onClick={() => setStage(1)}>Back</button>
-              <button className={styles.button} onClick={() => setStage(3)}>Continue</button>
-            </div>
-          </div>
-        )}
-
-        {/* Stage 3 — Field of study */}
-        {stage === 3 && (
           <form onSubmit={handleStudySubmit} className={styles.stage}>
             <h1 className={styles.title}>What do you study?</h1>
             <p className={styles.subtitle}>
-              Used to personalize your experience. Doesn't affect scheduling.
+              Used to personalize your experience. Doesn't affect what Rumbo ingests.
             </p>
             {fieldIsOther ? (
               <div className={styles.otherField}>
@@ -430,20 +381,44 @@ export default function Onboarding() {
             )}
             {error && <p className={styles.error}>{error}</p>}
             <div className={styles.actions}>
-              <button type="button" className={styles.buttonSecondary} onClick={() => setStage(2)}>Back</button>
               <button type="submit" className={styles.button} disabled={saving}>
-                {saving ? 'Saving...' : 'Continue'}
+                {saving ? 'Saving…' : 'Continue'}
               </button>
             </div>
           </form>
         )}
 
-        {/* Stage 4 — Calendar connect (final step) */}
-        {stage === 4 && (
+        {/* Stage 2 — Canvas PAT */}
+        {stage === 2 && (
           <div className={styles.stage}>
-            <h1 className={styles.title}>Connect your calendar</h1>
+            <h1 className={styles.title}>Connect Canvas</h1>
             <p className={styles.subtitle}>
-              Last step. Rumbo reads your existing events so scheduled blocks don't conflict.
+              Canvas is where most of your assignments live. Rumbo needs a personal access token
+              to read them — it stays on your account and you can revoke it anytime.
+            </p>
+            <CanvasConnect
+              onConnected={handleCanvasConnected}
+              onCancel={() => setStage(1)}
+              cancelLabel="Back"
+            />
+            <div className={styles.actions} style={{ marginTop: 'var(--space-md)' }}>
+              <button
+                type="button"
+                className={styles.buttonLink}
+                onClick={() => setStage(3)}
+              >
+                I don't use Canvas
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Stage 3 — Google Calendar */}
+        {stage === 3 && (
+          <div className={styles.stage}>
+            <h1 className={styles.title}>Connect Google</h1>
+            <p className={styles.subtitle}>
+              Rumbo reads your academic calendar events. Highly recommended.
             </p>
             <div className={styles.calendarOptions}>
               <button
@@ -453,21 +428,45 @@ export default function Onboarding() {
                   calendarConnected ? styles.calendarButtonDone : '',
                 ].filter(Boolean).join(' ')}
                 onClick={handleGoogleConnect}
-                disabled={calendarBusy || calendarConnected || finalizing}
+                disabled={calendarBusy || calendarConnected}
               >
                 <span>Google Calendar</span>
                 <span className={styles.comingSoon}>
                   {calendarConnected ? 'Connected' : calendarBusy ? 'Opening…' : 'Connect'}
                 </span>
               </button>
-              <button type="button" className={styles.calendarButton} disabled>
-                <span>Microsoft Outlook</span>
-                <span className={styles.comingSoon}>Coming soon</span>
-              </button>
             </div>
             {error && <p className={styles.error}>{error}</p>}
             <div className={styles.actions}>
-              <button type="button" className={styles.buttonSecondary} onClick={() => setStage(3)} disabled={finalizing}>
+              <button type="button" className={styles.buttonSecondary} onClick={() => setStage(2)}>
+                Back
+              </button>
+              <button type="button" className={styles.button} onClick={() => setStage(4)}>
+                {calendarConnected ? 'Continue' : 'Skip for now'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Stage 4 — Manual courses (stub for V0) */}
+        {stage === 4 && (
+          <div className={styles.stage}>
+            <h1 className={styles.title}>Anything Canvas doesn't have?</h1>
+            <p className={styles.subtitle}>
+              You can add courses Canvas doesn't cover — seminars, self-study, courses at another
+              institution. Optional — you can do this later in Settings.
+            </p>
+            <p className={styles.helpText}>
+              Manual course entry is coming soon. For now you can skip this and add courses later.
+            </p>
+            {error && <p className={styles.error}>{error}</p>}
+            <div className={styles.actions}>
+              <button
+                type="button"
+                className={styles.buttonSecondary}
+                onClick={() => setStage(3)}
+                disabled={finalizing}
+              >
                 Back
               </button>
               <button
@@ -477,15 +476,16 @@ export default function Onboarding() {
                 onClick={async () => {
                   setError(null)
                   try {
-                    await finalizeOnboarding()
+                    if (!finalizedRef.current) {
+                      finalizedRef.current = true
+                      await finalizeOnboarding()
+                    }
                   } catch (err) {
                     setError(err instanceof Error ? err.message : 'Something went wrong')
-                    finalizedRef.current = false
-                    setFinalizing(false)
                   }
                 }}
               >
-                {finalizing ? 'Finishing...' : calendarConnected ? 'Go to dashboard' : 'Finish for now'}
+                {finalizing ? 'Finishing…' : 'Finish'}
               </button>
             </div>
           </div>

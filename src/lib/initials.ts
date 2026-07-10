@@ -9,7 +9,10 @@ function initialsFromName(name: string): string {
     .slice(0, 2)
 }
 
-/** Derive up to two initials from the local part of an email when name is missing. */
+/** Derive an initial from the local part of an email when name is missing.
+ *  Multi-part locals ("first.last", "first_last") return two letters; a single
+ *  undelimited local ("diegoray") returns just the first letter — guessing at a
+ *  name boundary reads worse than a single clean letter. */
 function initialsFromEmail(email: string): string {
   const local = email.split('@')[0]?.trim()
   if (!local) return ''
@@ -23,10 +26,8 @@ function initialsFromEmail(email: string): string {
       .toUpperCase()
   }
 
-  const letters = local.replace(/[^a-zA-Z]/g, '')
-  if (letters.length >= 2) return letters.slice(0, 2).toUpperCase()
-  if (letters.length === 1) return letters.toUpperCase()
-  return local.slice(0, 2).toUpperCase()
+  const first = local.match(/[a-zA-Z]/)?.[0]
+  return first ? first.toUpperCase() : ''
 }
 
 export function getInitials(
