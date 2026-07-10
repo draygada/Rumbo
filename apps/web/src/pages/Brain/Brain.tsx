@@ -217,10 +217,18 @@ function displayNameFor(sourceType: string, payload: Record<string, unknown>, no
 }
 
 async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }> {
+  // Concept nodes + concept→record mentions now come from Neo4j via the
+  // brain-graph-read Edge Function (Phase 4 rewire). Source records still
+  // live in Postgres — that's per Infrastructure/neo4j.md: normalized_events
+  // is the source of truth.
+  const brainReadPromise = supabase.functions.invoke<{
+    concepts: Array<{ id: string; name: string; normalized_name: string; mention_count: number }>
+    mentions: Array<{ concept_id: string; source_record_id: string }>
+  }>('brain-graph-read', { body: {} })
+
   const [
     { data: records, error: recErr },
-    { data: resolvedNodes, error: nodeErr },
-    { data: mentions, error: menErr },
+    graphRes,
     { data: canvasCourseRows },
     { data: manualCourseRows },
   ] = await Promise.all([
@@ -237,18 +245,7 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
         'google_calendar',
       ])
       .limit(2000),
-    // Resolved concept/topic nodes — the pipeline already deduplicated these
-    // via embedding similarity, so "linear regression" and "regression analysis"
-    // that got merged during resolution now share ONE row here.
-    supabase
-      .from('graph_nodes')
-      .select('id, name, entity_type')
-      .in('entity_type', ['concept', 'topic', 'course_reference'])
-      .is('superseded_at', null),
-    // node_mentions tells us which source records each resolved node came from.
-    supabase
-      .from('node_mentions')
-      .select('node_id, source_record_id'),
+    brainReadPromise,
     supabase
       .from('normalized_events')
       .select('external_id, raw_payload')
@@ -261,8 +258,9 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
   ])
 
   if (recErr) throw recErr
-  if (nodeErr) throw nodeErr
-  if (menErr) throw menErr
+  if (graphRes.error) throw graphRes.error
+  const resolvedNodes = graphRes.data?.concepts ?? []
+  const mentions = graphRes.data?.mentions ?? []
 
   // course_id → short display label.
   const courseLabels = new Map<string, string>()
@@ -278,20 +276,19 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
     courseLabels.set(`manual_course_${c.id}`, code || name || 'Course')
   }
 
-  // Build (resolved node id → concept name) lookup.
+  // Build (concept id → display name) lookup.
   const conceptNameByNodeId = new Map<string, string>()
-  for (const n of (resolvedNodes ?? []) as Array<{ id: string; name: string }>) {
+  for (const n of resolvedNodes) {
     conceptNameByNodeId.set(n.id, n.name)
   }
 
   // record_id → { concepts (display names), tokens (union of tokens from all
   //               concepts for this record) }.
-  // Tokens are what actually drive edge formation — resolution was too strict
-  // to merge cross-course concepts (28 concept nodes, 0 cross-course overlaps),
-  // so we match on shared meaningful words instead. See conceptTokens().
+  // Tokens still drive edge formation client-side. Phase 6 will populate
+  // Neo4j COVERS edges with weights, at which point we can drop this fallback.
   const conceptsByRecord = new Map<string, { concepts: Set<string>; tokens: Set<string> }>()
-  for (const m of (mentions ?? []) as Array<{ node_id: string; source_record_id: string }>) {
-    const conceptName = conceptNameByNodeId.get(m.node_id)
+  for (const m of mentions) {
+    const conceptName = conceptNameByNodeId.get(m.concept_id)
     if (!conceptName) continue
     const key = m.source_record_id
     let bucket = conceptsByRecord.get(key)

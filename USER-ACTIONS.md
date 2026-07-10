@@ -331,11 +331,36 @@ Expected response shape:
 
 Paste the response. If `edges_skipped_missing_endpoint > 0` it means an edge points at a skipped node type — normal, just want to see the number.
 
-### After it succeeds
-Reply with the response payload. I'll:
-1. Verify the health snapshot matches expectations.
-2. Kick off **Phase 4 — rewire `/brain` to read from Neo4j.**
-3. Then Phase 5 (Canvas Modules ingestion — new `canvas_lecture` source).
+### Phase 4 — /brain reads from Neo4j
+
+Deploys `brain-graph-read`. The `/brain` page swaps its direct `graph_nodes` +
+`node_mentions` reads for a single Edge Function call. Records still come
+from Postgres.
+
+```bash
+cd ~/Desktop/Rumbo
+supabase functions deploy brain-graph-read --project-ref hgibayteggcyciddnyry
+```
+
+Then run `pnpm --filter web dev` and open the /brain page. Expect the same
+visualization as before, powered by Neo4j.
+
+**Sanity check:** in browser DevTools → Network, look for a
+`brain-graph-read` request. Response body should look like:
+```json
+{
+  "concepts": [ {"id": "pg_concept_...", "name": "...", "mention_count": ...}, ...63 rows ],
+  "mentions": [ {"concept_id":"pg_concept_...","source_record_id":"..."}, ... ],
+  "counts": { "concepts": 63, "mentions": <88ish> }
+}
+```
+
+If `/brain` renders identically to before → Phase 4 is done.
+
+### Phase 5 (next, no user action yet — I'm writing it)
+Canvas Modules ingestion: new `canvas_lecture` source_type; walks the
+Modules API for each active course and creates lecture records. Then Phase 6
+rewrites extraction to batched Fast-tier per source_type.
 
 ---
 

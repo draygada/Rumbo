@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.neo4j-backfill]
 verify_jwt = false
+
+[functions.brain-graph-read]
+verify_jwt = true
