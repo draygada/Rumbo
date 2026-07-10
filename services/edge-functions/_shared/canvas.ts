@@ -428,6 +428,116 @@ export function normalizeAssignment(userId: string, assignment: CanvasAssignment
 // Enrollment window: current + prior academic year
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Canvas Modules — lecture-level ingestion (§Rumbo-Design-Docs/External Sources/canvas-modules-and-files.md)
+// -----------------------------------------------------------------------------
+
+export interface CanvasModule {
+  id: number
+  name: string
+  position?: number
+  workflow_state?: string
+  updated_at?: string
+}
+
+export interface CanvasModuleItem {
+  id: number
+  module_id: number
+  title: string
+  type: string          // 'File' | 'Page' | 'ExternalUrl' | 'Assignment' | 'Quiz' | 'Discussion' | 'SubHeader'
+  content_id?: number   // Canvas file/page/assignment id, per item type
+  html_url?: string
+  external_url?: string
+  page_url?: string
+  position?: number
+  published?: boolean
+  workflow_state?: string
+}
+
+// Item types the lecture ingester keeps. Assignments/quizzes/discussions are
+// already ingested via other paths; SubHeaders are organizational text.
+const LECTURE_ITEM_TYPES = new Set(['File', 'Page', 'ExternalUrl'])
+
+export function isLectureModuleItem(item: CanvasModuleItem): boolean {
+  if (!LECTURE_ITEM_TYPES.has(item.type)) return false
+  if (item.workflow_state === 'unpublished' || item.workflow_state === 'deleted') return false
+  return true
+}
+
+// Rough classifier for lecture item -> Neo4j Lecture.lecture_type property.
+export function lectureTypeFor(item: CanvasModuleItem): 'slides' | 'notes' | 'external' | 'video_link' {
+  if (item.type === 'ExternalUrl') {
+    const url = (item.external_url || '').toLowerCase()
+    if (/(zoom|panopto|youtube|vimeo|loom)/i.test(url)) return 'video_link'
+    return 'external'
+  }
+  if (item.type === 'File') return 'slides'      // most File items in Modules are slide decks
+  return 'notes'                                   // Pages are notes docs
+}
+
+export async function listModules(creds: CanvasCredentials, courseId: number): Promise<CanvasModule[]> {
+  const url = apiUrl(creds.baseUrl, `/courses/${courseId}/modules`, { per_page: '100' })
+  try {
+    return await paginate<CanvasModule>(url, creds.pat)
+  } catch (err) {
+    // Not all Canvas instances expose Modules to every role. Treat as
+    // no-modules rather than aborting the course sync.
+    if (err instanceof CanvasError && (err.kind === 'auth' || err.status === 403)) return []
+    throw err
+  }
+}
+
+export async function listModuleItems(creds: CanvasCredentials, courseId: number, moduleId: number): Promise<CanvasModuleItem[]> {
+  const url = apiUrl(creds.baseUrl, `/courses/${courseId}/modules/${moduleId}/items`, { per_page: '100' })
+  try {
+    return await paginate<CanvasModuleItem>(url, creds.pat)
+  } catch (err) {
+    if (err instanceof CanvasError && (err.kind === 'auth' || err.status === 403)) return []
+    throw err
+  }
+}
+
+export function normalizeCanvasLecture(
+  userId: string,
+  courseId: number,
+  module: CanvasModule,
+  item: CanvasModuleItem,
+): NormalizedRow {
+  const title = item.title?.trim() || `Module ${module.id} Item ${item.id}`
+  const moduleName = module.name?.trim() || `Module ${module.id}`
+  const normalizedText = `${moduleName}: ${title}`
+  return {
+    user_id: userId,
+    source_type: 'canvas_lecture',
+    external_id: `canvas_lecture_${item.id}`,
+    timestamp: null, // Modules API doesn't expose a per-item date
+    course_id: `canvas_course_${courseId}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: {
+      module_id: module.id,
+      module_name: moduleName,
+      module_position: module.position,
+      item_id: item.id,
+      item_title: title,
+      item_type: item.type,
+      item_position: item.position,
+      html_url: item.html_url,
+      external_url: item.external_url,
+      page_url: item.page_url,
+      content_id: item.content_id,
+      lecture_type: lectureTypeFor(item),
+      canvas_course_id: courseId,
+    },
+    normalized_text: normalizedText,
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Enrollment window: current + prior academic year
+// -----------------------------------------------------------------------------
+
 export function courseInEnrollmentWindow(course: CanvasCourse, now = new Date()): boolean {
   if (!course.end_at) return true  // no end_at = keep (ongoing)
   const endAt = new Date(course.end_at)

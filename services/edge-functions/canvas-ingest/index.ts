@@ -19,11 +19,15 @@ import {
   CanvasError,
   classifyCanvasFile,
   courseInEnrollmentWindow,
+  isLectureModuleItem,
   listAssignments,
   listCourses,
   listFiles,
+  listModuleItems,
+  listModules,
   normalizeAssignment,
   normalizeCanvasFile,
+  normalizeCanvasLecture,
   normalizeCourse,
   normalizeSyllabus,
   type NormalizedRow,
@@ -39,6 +43,7 @@ interface UserSyncResult {
   courses_seen: number
   assignments_seen: number
   files_seen: number
+  lectures_seen: number
   rows_upserted: number
   error?: string
 }
@@ -61,7 +66,7 @@ async function markTokenExpired(admin: ReturnType<typeof createAdminClient>, use
 }
 
 async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: string, creds: CanvasCredentials): Promise<UserSyncResult> {
-  const result: UserSyncResult = { user_id: userId, courses_seen: 0, assignments_seen: 0, files_seen: 0, rows_upserted: 0 }
+  const result: UserSyncResult = { user_id: userId, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, rows_upserted: 0 }
 
   let courses
   try {
@@ -123,6 +128,24 @@ async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: str
         }
       } catch (fileErr) {
         console.warn(`[canvas-ingest] files for course ${course.id} skipped:`, fileErr instanceof Error ? fileErr.message : fileErr)
+      }
+
+      // Modules → Lecture rows. See canvas-modules-and-files.md §2.
+      // Failure to list modules never kills the sync — some Canvas installs
+      // restrict the endpoint per role.
+      try {
+        const modules = await listModules(creds, course.id)
+        for (const mod of modules) {
+          if (mod.workflow_state === 'unpublished' || mod.workflow_state === 'deleted') continue
+          const items = await listModuleItems(creds, course.id, mod.id)
+          for (const item of items) {
+            if (!isLectureModuleItem(item)) continue
+            rows.push(normalizeCanvasLecture(userId, course.id, mod, item))
+            result.lectures_seen += 1
+          }
+        }
+      } catch (modErr) {
+        console.warn(`[canvas-ingest] modules for course ${course.id} skipped:`, modErr instanceof Error ? modErr.message : modErr)
       }
     } catch (err) {
       if (err instanceof CanvasError && err.kind === 'rate_limit') {
@@ -205,7 +228,7 @@ Deno.serve(async (req) => {
       .eq('user_id', row.user_id)
       .maybeSingle()
     if (state?.token_status === 'expired') {
-      results.push({ user_id: row.user_id, courses_seen: 0, assignments_seen: 0, files_seen: 0, rows_upserted: 0, error: 'token_expired' })
+      results.push({ user_id: row.user_id, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, rows_upserted: 0, error: 'token_expired' })
       continue
     }
 
