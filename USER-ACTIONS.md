@@ -214,6 +214,75 @@ From the final testing sweep (all non-blocking, review in the morning):
 
 ---
 
+## 9.5 Tutor build — Phase 1 (monorepo) + Phase 2 (Neo4j schema)
+
+**Branch:** `phase1-monorepo`. Restructure is committed (`1bdfc54`). Rollback = `git checkout BrainPlaying`.
+
+### Phase 1 — no user action needed
+The repo is now pnpm workspaces:
+- `apps/web/` — the React app (build passes)
+- `services/edge-functions/` — every function
+- `packages/{shared-types,graph-client,supabase-client}/` — libs
+- `supabase/functions → services/edge-functions` symlink so `supabase functions deploy` still works
+
+### Phase 2 — you deploy + invoke
+
+The `neo4j-schema-apply` Edge Function is new. It runs the constraints/indexes/vector indexes from `Rumbo-Design-Docs/Graph Pipeline/graph-schema.md §6`, including the reserved `LearnerNote` label + `learner_note_by_user_target` index for the Phase 2 learner model. Idempotent — safe to re-run.
+
+**Prereqs — confirm these Supabase secrets are set:**
+```bash
+supabase secrets list --project-ref hgibayteggcyciddnyry | grep -E 'NEO4J|CRON'
+# Expect: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, CRON_SECRET
+```
+
+If any are missing:
+```bash
+supabase secrets set --project-ref hgibayteggcyciddnyry \
+  NEO4J_URI='https://d60fe359.databases.neo4j.io' \
+  NEO4J_USER='neo4j' \
+  NEO4J_PASSWORD='<the ROTATED password from Aura>'
+```
+(Reminder: the password originally pasted in chat is compromised. Rotate it in the Aura dashboard first and set the fresh one.)
+
+**Deploy + apply:**
+```bash
+cd ~/Desktop/Rumbo
+
+# 1. Deploy the new function
+supabase functions deploy neo4j-schema-apply --project-ref hgibayteggcyciddnyry
+
+# 2. Invoke it (uses CRON_SECRET as auth)
+CRON_SECRET=$(supabase secrets list --project-ref hgibayteggcyciddnyry \
+  | grep CRON_SECRET | awk '{print $2}')   # or paste it in
+
+curl -sS -X POST \
+  "https://hgibayteggcyciddnyry.supabase.co/functions/v1/neo4j-schema-apply" \
+  -H "x-cron-secret: $CRON_SECRET" \
+  -H "Authorization: Bearer $(supabase secrets list --project-ref hgibayteggcyciddnyry | grep SUPABASE_ANON_KEY | awk '{print $2}')" \
+  | jq
+```
+
+**Expected response shape:**
+```json
+{
+  "total": 20,   // 12 uniqueness constraints + 6 indexes + 1 fulltext + 2 vector
+  "ok": 20,
+  "failed": 0,
+  "results": [ { "name": "constraint_user_id_unique", "ok": true }, ... ],
+  "health": []   // empty on first run
+}
+```
+
+If any step returns `ok: false`, paste the `error` back into chat — likely the URI needs the `:443` suffix or the vector-index feature isn't available on Aura Free (fallback: drop vector indexes and re-run).
+
+### After it succeeds
+Reply with the response payload (redact the URI). I'll:
+1. Verify all 20 steps landed.
+2. Kick off **Phase 3 — one-time Postgres→Neo4j sync** (write the sync worker; you deploy + invoke; we backfill the ~28 concepts/~88 mentions already in Postgres).
+3. Then Phase 4 rewires `/brain` to read from Neo4j.
+
+---
+
 ## 10. Anything left undone (audit this the morning after)
 
 - The Phase 7–10 subagent's report — read `/private/tmp/claude-501/.../<agent-id>.output` and confirm files were written. Missing files must be created manually.

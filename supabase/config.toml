@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.canvas-file-extract]
 verify_jwt = false
+
+[functions.neo4j-schema-apply]
+verify_jwt = false
