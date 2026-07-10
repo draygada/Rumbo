@@ -16,8 +16,8 @@ const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta'
 // -----------------------------------------------------------------------------
 // Model choices — see https://ai.google.dev/gemini-api/docs/models
 // -----------------------------------------------------------------------------
-export const GEMINI_FAST_MODEL = 'gemini-2.0-flash'
-export const GEMINI_STRONG_MODEL = 'gemini-2.0-flash'
+export const GEMINI_FAST_MODEL = 'gemini-flash-latest'
+export const GEMINI_STRONG_MODEL = 'gemini-pro-latest'
 export const GEMINI_EMBED_MODEL = 'gemini-embedding-001'
 export const EMBEDDING_DIM = 1536
 
