@@ -46,6 +46,12 @@ export default function Sidebar() {
           Brain
         </NavLink>
         <NavLink
+          to="/tutor"
+          className={({ isActive }) => [styles.navLink, isActive ? styles.navLinkActive : ''].join(' ')}
+        >
+          Tutor
+        </NavLink>
+        <NavLink
           to="/settings"
           className={({ isActive }) => [styles.navLink, isActive ? styles.navLinkActive : ''].join(' ')}
         >

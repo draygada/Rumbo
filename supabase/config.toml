@@ -66,6 +66,9 @@ verify_jwt = false
 [functions.sub-lecture-chunker]
 verify_jwt = false
 
+[functions.tutor]
+verify_jwt = true
+
 [functions.neo4j-backfill]
 verify_jwt = false
 

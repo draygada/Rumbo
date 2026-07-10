@@ -10,6 +10,7 @@ import Settings from '../pages/Settings/Settings'
 import Account from '../pages/Account/Account'
 import ManualCourses from '../pages/ManualCourses/ManualCourses'
 import Brain from '../pages/Brain/Brain'
+import Tutor from '../pages/Tutor/Tutor'
 // AddTask is preserved but not routed in V0 — see Rumbo-Design-Docs/Legacy/scheduler.md.
 
 function PublicRoute() {
@@ -59,6 +60,7 @@ export const router = createBrowserRouter([
           { path: '/dashboard', element: <Dashboard /> },
           { path: '/courses', element: <ManualCourses /> },
           { path: '/brain', element: <Brain /> },
+          { path: '/tutor', element: <Tutor /> },
           { path: '/settings', element: <Settings /> },
           { path: '/account', element: <Account /> },
         ],
