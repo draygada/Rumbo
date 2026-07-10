@@ -26,8 +26,12 @@ import {
 } from '../_shared/neo4j-graph-writer.ts'
 
 const PIPELINE_VERSION = 'fast-v2-2026-07-09'
-const DEFAULT_LIMIT = 100
-const HARD_CAP = 200
+// Edge Function worker resource caps: gemini-flash-latest resolves to a
+// thinking model that uses substantial compute + memory. 50 records/run keeps
+// us well under WORKER_RESOURCE_LIMIT; caller re-invokes until 'processed'
+// is 0. Bump when we move to non-thinking mode via thinkingConfig.
+const DEFAULT_LIMIT = 50
+const HARD_CAP = 50
 
 // Source-type priority: lecture > syllabus > assignment > file > course > event.
 const SOURCE_TYPE_PRIORITY: Record<string, number> = {
