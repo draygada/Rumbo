@@ -1,8 +1,14 @@
 # Dependencies
 node_modules/
+apps/*/node_modules/
+services/*/node_modules/
+packages/*/node_modules/
+.pnpm-store/
 
 # Build output
 dist/
+apps/*/dist/
+packages/*/dist/
 
 # Environment variables — never commit
 .env

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { runScheduler, SchedulerInput, SchedulerProfile, SchedulerTask } from '../../../supabase/functions/_shared/scheduler'
+import { runScheduler, SchedulerInput, SchedulerProfile, SchedulerTask } from '../../../../../supabase/functions/_shared/scheduler'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────
 

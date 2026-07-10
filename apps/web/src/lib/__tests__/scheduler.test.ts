@@ -1,7 +1,7 @@
-import { compositeScore } from '../../../supabase/functions/_shared/compositeScore'
-import { urgencyRatio, isUrgencyMode, adjustedBlockMins } from '../../../supabase/functions/_shared/scheduler'
-import { deadlineProximity, proximityBucket } from '../../../supabase/functions/_shared/deadlineProximity'
-import { SCHEDULER } from '../../../supabase/functions/_shared/schedulerConstants'
+import { compositeScore } from '../../../../../supabase/functions/_shared/compositeScore'
+import { urgencyRatio, isUrgencyMode, adjustedBlockMins } from '../../../../../supabase/functions/_shared/scheduler'
+import { deadlineProximity, proximityBucket } from '../../../../../supabase/functions/_shared/deadlineProximity'
+import { SCHEDULER } from '../../../../../supabase/functions/_shared/schedulerConstants'
 
 // ─── compositeScore ───────────────────────────────────────────────────────
 
