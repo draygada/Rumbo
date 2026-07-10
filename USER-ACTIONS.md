@@ -275,11 +275,67 @@ curl -sS -X POST \
 
 If any step returns `ok: false`, paste the `error` back into chat — likely the URI needs the `:443` suffix or the vector-index feature isn't available on Aura Free (fallback: drop vector indexes and re-run).
 
+### Phase 3 — one-time Postgres→Neo4j sync
+
+Deploys the `neo4j-backfill` Edge Function. It walks `manual_courses` + `graph_nodes` + `graph_edges` for a user and MERGEs them into Neo4j as `Course` / `Concept` / `Person` / `Assignment` nodes with `RELATED_TO` / `PREREQUISITE_OF` edges. Idempotent.
+
+Not synced by backfill (Phase 5–7 will handle these fresh from Canvas):
+- Canvas Lecture / File / Syllabus / LectureSlide nodes
+- CalendarEvent nodes
+- `COVERS` / `APPEARS_IN` denormalization edges
+
+**Deploy + invoke (single user first, to eyeball):**
+
+```bash
+cd ~/Desktop/Rumbo
+supabase functions deploy neo4j-backfill --project-ref hgibayteggcyciddnyry
+
+# Backfill YOUR user only (safer first run than "all users").
+# Grab your user_id from Supabase Studio → Authentication → Users → copy id.
+export MY_USER_ID='<paste user_id here>'
+
+curl -sS -X POST \
+  "https://hgibayteggcyciddnyry.supabase.co/functions/v1/neo4j-backfill" \
+  -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+  -H "x-cron-secret: $CRON_SECRET" \
+  -H "Content-Type: application/json" \
+  -d "{\"user_id\":\"$MY_USER_ID\"}" \
+  | jq
+```
+
+Expected response shape:
+```json
+{
+  "users": 1,
+  "results": [{
+    "user_id": "…",
+    "ok": true,
+    "report": {
+      "user_merged": 1,
+      "courses_merged": <manual course count>,
+      "concepts_merged": ~28,
+      "persons_merged": <small>,
+      "assignments_merged": <small>,
+      "nodes_skipped": <course_reference + deadline count>,
+      "edges_merged": <edges between concepts>,
+      "edges_skipped_missing_endpoint": 0
+    }
+  }],
+  "health": [
+    { "label": "Concept", "count": ~28 },
+    { "label": "Course", "count": ... },
+    ...
+  ]
+}
+```
+
+Paste the response. If `edges_skipped_missing_endpoint > 0` it means an edge points at a skipped node type — normal, just want to see the number.
+
 ### After it succeeds
-Reply with the response payload (redact the URI). I'll:
-1. Verify all 20 steps landed.
-2. Kick off **Phase 3 — one-time Postgres→Neo4j sync** (write the sync worker; you deploy + invoke; we backfill the ~28 concepts/~88 mentions already in Postgres).
-3. Then Phase 4 rewires `/brain` to read from Neo4j.
+Reply with the response payload. I'll:
+1. Verify the health snapshot matches expectations.
+2. Kick off **Phase 4 — rewire `/brain` to read from Neo4j.**
+3. Then Phase 5 (Canvas Modules ingestion — new `canvas_lecture` source).
 
 ---
 
