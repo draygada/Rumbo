@@ -211,6 +211,135 @@ export async function upsertConceptAndLink(
 }
 
 // ---------------------------------------------------------------------------
+// v3 helpers — closed-vocab candidate lookup, doc-level body upserts, chunk children.
+// ---------------------------------------------------------------------------
+
+export interface DocBodyUpsertArgs {
+  userId: string
+  label: 'Lecture' | 'Assignment' | 'File' | 'Syllabus'
+  id: string
+  bodyText: string
+  bodyEmbedding: number[] | null
+}
+
+// Idempotent — sets body_text and body_embedding on an existing doc node.
+// Assumes ensureStructuralNode already created the node.
+export async function upsertDocBody(client: Neo4jClient, args: DocBodyUpsertArgs): Promise<void> {
+  await client.run(
+    `MATCH (n:${args.label} {id: $id, user_id: $userId})
+     SET n.body_text = $bodyText,
+         n.body_embedding = $embedding`,
+    {
+      id: args.id,
+      userId: args.userId,
+      bodyText: args.bodyText,
+      embedding: args.bodyEmbedding,
+    },
+  )
+}
+
+export interface ChunkUpsertArgs {
+  userId: string
+  parentLabel: string   // 'Lecture' | 'Assignment' | ...
+  parentId: string
+  chunkIndex: number
+  heading: string | null
+  text: string
+  embedding: number[] | null
+}
+
+export async function upsertChunk(client: Neo4jClient, args: ChunkUpsertArgs): Promise<string> {
+  const id = `chunk_${args.parentId}_${args.chunkIndex}`
+  await client.run(
+    `MERGE (c:Chunk {id: $id})
+     SET c.user_id = $userId,
+         c.parent_id = $parentId,
+         c.parent_label = $parentLabel,
+         c.chunk_index = $chunkIndex,
+         c.heading = $heading,
+         c.text = $text,
+         c.body_embedding = $embedding
+     WITH c
+     MATCH (p:${args.parentLabel} {id: $parentId, user_id: $userId})
+     MERGE (p)-[:HAS_CHUNK]->(c)`,
+    {
+      id,
+      userId: args.userId,
+      parentId: args.parentId,
+      parentLabel: args.parentLabel,
+      chunkIndex: args.chunkIndex,
+      heading: args.heading,
+      text: args.text,
+      embedding: args.embedding,
+    },
+  )
+  return id
+}
+
+// Fetch top-K candidate Concepts by cosine similarity to a record embedding.
+// Used by brain-classify-v3 to seed the classifier's candidate list.
+export async function getCandidateConcepts(
+  client: Neo4jClient,
+  args: { userId: string; embedding: number[]; topK?: number },
+): Promise<Array<{ id: string; name: string; score: number }>> {
+  const k = args.topK ?? 20
+  const hits = await client.run<{ id: string; name: string; score: number }>(
+    `CALL db.index.vector.queryNodes('concept_embedding', $k, $embedding)
+     YIELD node, score
+     WHERE node.user_id = $userId
+     RETURN node.id AS id, node.name AS name, score
+     ORDER BY score DESC`,
+    { userId: args.userId, embedding: args.embedding, k },
+  ).catch(() => [] as Array<{ id: string; name: string; score: number }>)
+  return hits
+}
+
+// Create a brand-new Concept node with a deterministic id and its embedding.
+// Used when the classifier proposes a concept not in the candidate list.
+export async function createConceptWithEmbedding(
+  client: Neo4jClient,
+  args: {
+    userId: string
+    name: string
+    normalizedName: string
+    embedding: number[]
+  },
+): Promise<string> {
+  const hash = (await sha256Hex(args.userId + args.normalizedName)).slice(0, 16)
+  const id = `concept_${hash}`
+  await client.run(
+    `MERGE (c:Concept {id: $id})
+     ON CREATE SET c.user_id = $userId,
+                   c.name = $name,
+                   c.normalized_name = $normalized,
+                   c.embedding = $embedding,
+                   c.mention_count = 1,
+                   c.first_seen_at = datetime(),
+                   c.last_seen_at = datetime()
+     ON MATCH SET  c.mention_count = coalesce(c.mention_count, 0) + 1,
+                   c.last_seen_at = datetime()`,
+    {
+      id,
+      userId: args.userId,
+      name: args.name,
+      normalized: args.normalizedName,
+      embedding: args.embedding,
+    },
+  )
+  return id
+}
+
+// Bump mention count on an existing (matched) Concept — no vector op.
+export async function bumpConceptMention(client: Neo4jClient, args: { userId: string; conceptId: string }): Promise<void> {
+  await client.run(
+    `MATCH (c:Concept {id: $conceptId, user_id: $userId})
+     SET c.mention_count = coalesce(c.mention_count, 0) + 1,
+         c.last_seen_at = datetime()`,
+    { conceptId: args.conceptId, userId: args.userId },
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Legacy per-hop helpers — kept for backfill / chunker code paths that need
 // only one of the operations.
 // ---------------------------------------------------------------------------

@@ -54,6 +54,9 @@ verify_jwt = false
 [functions.brain-pipeline-v2]
 verify_jwt = false
 
+[functions.brain-pipeline-v3]
+verify_jwt = false
+
 [functions.brain-decay]
 verify_jwt = false
 

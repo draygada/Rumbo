@@ -81,6 +81,10 @@ const fulltextIndexes: SchemaStep[] = [
 ]
 
 // Vector indexes — must match gemini-embedding-001 outputDimensionality=1536.
+// Every content node gets its own body_embedding index so the tutor can
+// fan-out vector queries across all label types in parallel.
+const CONTENT_LABELS = ['Lecture', 'Assignment', 'File', 'Syllabus'] as const
+
 const vectorIndexes: SchemaStep[] = [
   {
     name: 'vector_concept_embedding',
@@ -94,11 +98,39 @@ const vectorIndexes: SchemaStep[] = [
       FOR (c:Course) ON c.description_embedding
       OPTIONS { indexConfig: { \`vector.dimensions\`: 1536, \`vector.similarity_function\`: 'cosine' } }`,
   },
+  // Per-label body_embedding vector indexes for content nodes.
+  ...CONTENT_LABELS.map((label) => ({
+    name: `vector_${label.toLowerCase()}_body_embedding`,
+    statement: `CREATE VECTOR INDEX ${label.toLowerCase()}_body_embedding IF NOT EXISTS
+      FOR (n:${label}) ON n.body_embedding
+      OPTIONS { indexConfig: { \`vector.dimensions\`: 1536, \`vector.similarity_function\`: 'cosine' } }`,
+  })),
+  // Chunk children (adaptive: only created when doc > 4k chars OR has ≥3 sections).
+  {
+    name: 'vector_chunk_body_embedding',
+    statement: `CREATE VECTOR INDEX chunk_body_embedding IF NOT EXISTS
+      FOR (n:Chunk) ON n.body_embedding
+      OPTIONS { indexConfig: { \`vector.dimensions\`: 1536, \`vector.similarity_function\`: 'cosine' } }`,
+  },
 ]
+
+// Chunk uniqueness constraint so ingestion is idempotent.
+const chunkConstraint: SchemaStep = {
+  name: 'constraint_chunk_id_unique',
+  statement: 'CREATE CONSTRAINT chunk_id_unique IF NOT EXISTS FOR (n:Chunk) REQUIRE n.id IS UNIQUE',
+}
+
+// Composite index for Chunk lookups by parent.
+const chunkParentIndex: SchemaStep = {
+  name: 'index_chunk_by_parent',
+  statement: 'CREATE INDEX chunk_by_parent IF NOT EXISTS FOR (n:Chunk) ON (n.user_id, n.parent_id)',
+}
 
 const ALL_STEPS: SchemaStep[] = [
   ...uniquenessConstraints,
+  chunkConstraint,
   ...compositeIndexes,
+  chunkParentIndex,
   ...fulltextIndexes,
   ...vectorIndexes,
 ]
