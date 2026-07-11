@@ -14,18 +14,22 @@ import { geminiClassifyJson, type GeminiJsonSchema } from './gemini.ts'
 // Source authority per node type / source_type. Mirrors the Brain.tsx constant
 // so styling and edge weights agree.
 export const SOURCE_AUTHORITY: Record<string, number> = {
-  canvas_course:         0.90,
-  manual_course:         0.90,
-  canvas_syllabus:       1.00,
-  manual_syllabus:       1.00,
-  canvas_file_syllabus:  1.00,
-  canvas_file_rubric:    0.85,
-  canvas_file_project:   0.90,
-  canvas_file_study:     0.80,
-  canvas_assignment:     0.75,
-  manual_assignment:     0.75,
-  canvas_lecture:        0.80,
-  google_calendar:       0.70,
+  canvas_course:             0.90,
+  manual_course:             0.90,
+  canvas_syllabus:           1.00,
+  manual_syllabus:           1.00,
+  canvas_file_syllabus:      1.00,
+  canvas_file_rubric:        0.85,
+  canvas_file_project:       0.90,
+  canvas_file_study:         0.80,
+  canvas_assignment:         0.75,
+  manual_assignment:         0.75,
+  canvas_assignment_rubric:  0.90,  // instructor-authored, defines assessment
+  canvas_lecture:            0.80,
+  canvas_home:               0.95,  // course front page — high-level "what this class is"
+  canvas_announcement:       0.75,  // dated + high signal but noisier than syllabus
+  canvas_page:               0.80,  // supplementary wiki pages
+  google_calendar:           0.70,
 }
 
 export interface NormalizedEventLite {
@@ -52,18 +56,22 @@ export interface RecordConcepts {
 const PROMPT_PREAMBLE = `Return concepts as short (1-4 word) noun phrases. Prefer the concept name a professor would say in class. Don't emit filler concepts like 'homework', 'lecture', 'chapter'. If a record has no substantive concepts (like an empty file), return [].`
 
 const SOURCE_TYPE_INSTRUCTION: Record<string, string> = {
-  canvas_syllabus:      `extract the concepts this course COVERS, weighted toward the syllabus's own topics list`,
-  canvas_file_syllabus: `extract the concepts this course COVERS, weighted toward the syllabus's own topics list`,
-  manual_syllabus:      `extract the concepts this course COVERS, weighted toward the syllabus's own topics list`,
-  canvas_lecture:       `extract the concept this lecture is about; often derivable from the module + item title alone`,
-  canvas_file_project:  `extract concepts this project applies`,
-  canvas_file_rubric:   `extract concepts this rubric assesses`,
-  canvas_file_study:    `extract concepts this study material covers`,
-  canvas_assignment:    `extract concepts this assignment tests`,
-  manual_assignment:    `extract concepts this assignment tests`,
-  canvas_course:        `extract concepts this course belongs to (subject area)`,
-  manual_course:        `extract concepts this course belongs to (subject area)`,
-  google_calendar:      `extract concepts if the event title is clearly academic`,
+  canvas_syllabus:           `extract the concepts this course COVERS, weighted toward the syllabus's own topics list`,
+  canvas_file_syllabus:      `extract the concepts this course COVERS, weighted toward the syllabus's own topics list`,
+  manual_syllabus:           `extract the concepts this course COVERS, weighted toward the syllabus's own topics list`,
+  canvas_lecture:            `extract the concept this lecture is about; often derivable from the module + item title alone`,
+  canvas_file_project:       `extract concepts this project applies`,
+  canvas_file_rubric:        `extract concepts this rubric assesses`,
+  canvas_file_study:         `extract concepts this study material covers`,
+  canvas_assignment:         `extract concepts this assignment tests`,
+  canvas_assignment_rubric:  `extract the specific grading criteria concepts this rubric assesses (e.g. "code style", "algorithmic correctness", "clarity of writing"). Skip generic ones like "meets requirements".`,
+  manual_assignment:         `extract concepts this assignment tests`,
+  canvas_course:             `extract concepts this course belongs to (subject area)`,
+  manual_course:             `extract concepts this course belongs to (subject area)`,
+  canvas_home:               `extract the concepts this course's front page introduces — the overview the professor uses to frame the class`,
+  canvas_announcement:       `extract concepts this announcement is about ONLY if academic (a topic change, a covered concept, a resource). If the announcement is purely administrative ("office hours moved"), return []`,
+  canvas_page:               `extract concepts this wiki page covers or explains`,
+  google_calendar:           `extract concepts if the event title is clearly academic`,
 }
 
 function instructionFor(sourceType: string): string {

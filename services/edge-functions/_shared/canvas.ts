@@ -203,10 +203,249 @@ export async function listAssignments(creds: CanvasCredentials, courseId: number
   const url = apiUrl(creds.baseUrl, `/courses/${courseId}/assignments`, {
     order_by: 'due_at',
     per_page: '50',
+    // rubric attaches to Assignment.rubric as JSON on the payload — see
+    // canvas-modules-and-files.md §backlog. Included in the same call so we
+    // don't multiply requests per course.
+    'include[]': ['rubric'],
   })
   const items = await paginate<CanvasAssignment>(url, creds.pat)
   // Canvas doesn't always echo course_id on the assignment when fetched by-course.
   return items.map(a => ({ ...a, course_id: a.course_id ?? courseId }))
+}
+
+// -----------------------------------------------------------------------------
+// Canvas Home Page (course front page)
+// -----------------------------------------------------------------------------
+
+export interface CanvasPage {
+  page_id?: number
+  url: string                    // page_url (slug), e.g. "welcome"
+  title: string
+  body?: string | null           // HTML
+  updated_at?: string
+  created_at?: string
+  editing_roles?: string
+  published?: boolean
+  front_page?: boolean
+  html_url?: string
+}
+
+export async function getCourseFrontPage(creds: CanvasCredentials, courseId: number): Promise<CanvasPage | null> {
+  const url = apiUrl(creds.baseUrl, `/courses/${courseId}/front_page`)
+  try {
+    const response = await canvasFetch(url, creds.pat)
+    return (await response.json()) as CanvasPage
+  } catch (err) {
+    // 404 when no front page is set — most courses. Return null quietly.
+    if (err instanceof CanvasError && err.status === 404) return null
+    // 401/403 tend to mean the course scopes are restricted — same swallow.
+    if (err instanceof CanvasError && (err.kind === 'auth' || err.status === 403)) return null
+    throw err
+  }
+}
+
+export function normalizeCanvasHome(userId: string, courseId: number, page: CanvasPage): NormalizedRow | null {
+  const bodyText = stripHtml(page.body ?? '')
+  if (!bodyText && !page.title) return null
+  const title = page.title?.trim() || 'Course home page'
+  return {
+    user_id: userId,
+    source_type: 'canvas_home',
+    external_id: `canvas_home_${courseId}`,
+    timestamp: page.updated_at ?? page.created_at ?? null,
+    course_id: `canvas_course_${courseId}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: {
+      title,
+      page_url: page.url,
+      body_html: page.body,
+      html_url: page.html_url,
+      canvas_course_id: courseId,
+    },
+    normalized_text: `${title}\n\n${bodyText}`.trim(),
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Canvas Announcements (course-scoped)
+// -----------------------------------------------------------------------------
+
+export interface CanvasAnnouncement {
+  id: number
+  title: string
+  message?: string | null            // HTML
+  posted_at?: string
+  html_url?: string
+  author?: { display_name?: string }
+  context_code?: string              // 'course_1234'
+}
+
+export async function listAnnouncements(creds: CanvasCredentials, courseId: number, sinceIso?: string): Promise<CanvasAnnouncement[]> {
+  // Canvas discussion_topics with only_announcements=true, filtered per course
+  // via context_codes[]=course_<id>. Optional since= to constrain.
+  const params: Record<string, string | string[]> = {
+    'context_codes[]': [`course_${courseId}`],
+    per_page: '50',
+    active_only: 'true',
+  }
+  // Announcements endpoint requires start_date / end_date to be an actual
+  // window; if we skip them, Canvas returns the last 14 days by default.
+  if (sinceIso) params.start_date = sinceIso
+  const url = apiUrl(creds.baseUrl, '/announcements', params)
+  try {
+    return await paginate<CanvasAnnouncement>(url, creds.pat)
+  } catch (err) {
+    if (err instanceof CanvasError && (err.kind === 'auth' || err.status === 403)) return []
+    throw err
+  }
+}
+
+export function normalizeCanvasAnnouncement(userId: string, courseId: number, ann: CanvasAnnouncement): NormalizedRow | null {
+  const text = stripHtml(ann.message ?? '')
+  const title = ann.title?.trim() || `Announcement ${ann.id}`
+  // Skip trivial announcements ("class cancelled", one-liners) unless they have
+  // real body content. Threshold is intentionally low — we want to keep
+  // schedule-shift signal even if terse.
+  if (!text && title.length < 8) return null
+  return {
+    user_id: userId,
+    source_type: 'canvas_announcement',
+    external_id: `canvas_announcement_${ann.id}`,
+    timestamp: ann.posted_at ?? null,
+    course_id: `canvas_course_${courseId}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: {
+      title,
+      message_html: ann.message,
+      html_url: ann.html_url,
+      author: ann.author?.display_name ?? null,
+      canvas_course_id: courseId,
+      canvas_announcement_id: ann.id,
+    },
+    normalized_text: `${title}\n\n${text}`.trim(),
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Canvas Pages (non-Module wiki pages)
+//
+// Distinct from front_page (which is one specific page). listPages returns
+// every published page in the course; getPageBody fetches body for one.
+// -----------------------------------------------------------------------------
+
+export async function listPages(creds: CanvasCredentials, courseId: number): Promise<CanvasPage[]> {
+  const url = apiUrl(creds.baseUrl, `/courses/${courseId}/pages`, {
+    per_page: '50',
+    published: 'true',
+  })
+  try {
+    return await paginate<CanvasPage>(url, creds.pat)
+  } catch (err) {
+    if (err instanceof CanvasError && (err.kind === 'auth' || err.status === 403)) return []
+    throw err
+  }
+}
+
+export async function getPageBody(creds: CanvasCredentials, courseId: number, pageUrl: string): Promise<CanvasPage | null> {
+  const url = apiUrl(creds.baseUrl, `/courses/${courseId}/pages/${encodeURIComponent(pageUrl)}`)
+  try {
+    const response = await canvasFetch(url, creds.pat)
+    return (await response.json()) as CanvasPage
+  } catch (err) {
+    if (err instanceof CanvasError && err.status === 404) return null
+    if (err instanceof CanvasError && (err.kind === 'auth' || err.status === 403)) return null
+    throw err
+  }
+}
+
+export function normalizeCanvasPage(userId: string, courseId: number, page: CanvasPage): NormalizedRow | null {
+  const bodyText = stripHtml(page.body ?? '')
+  const title = page.title?.trim() || 'Page'
+  // A page with no body and no meaningful title is noise. Requires either.
+  if (!bodyText && title.length < 4) return null
+  return {
+    user_id: userId,
+    source_type: 'canvas_page',
+    external_id: `canvas_page_${courseId}_${page.url}`,
+    timestamp: page.updated_at ?? page.created_at ?? null,
+    course_id: `canvas_course_${courseId}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: {
+      title,
+      page_url: page.url,
+      body_html: page.body,
+      html_url: page.html_url,
+      canvas_course_id: courseId,
+    },
+    normalized_text: `${title}\n\n${bodyText}`.trim(),
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Rubric attached to an Assignment
+//
+// Canvas returns the rubric on the Assignment payload when we include[]=rubric
+// on the listAssignments call. This normalizer produces a distinct rubric row
+// only when there's substantive rubric content — the assignment itself is
+// already ingested via normalizeAssignment.
+// -----------------------------------------------------------------------------
+
+export interface CanvasRubricCriterion {
+  id?: string
+  description?: string
+  long_description?: string
+  points?: number
+  ratings?: Array<{ description?: string; points?: number; long_description?: string }>
+}
+
+export function extractAssignmentRubric(assignment: CanvasAssignment & { rubric?: CanvasRubricCriterion[] }): CanvasRubricCriterion[] | null {
+  const rubric = assignment.rubric
+  if (!Array.isArray(rubric) || rubric.length === 0) return null
+  return rubric
+}
+
+export function normalizeAssignmentRubric(userId: string, assignment: CanvasAssignment & { rubric?: CanvasRubricCriterion[] }): NormalizedRow | null {
+  const rubric = extractAssignmentRubric(assignment)
+  if (!rubric) return null
+  // Flatten rubric criteria into readable text — every criterion becomes a
+  // paragraph so extraction sees each grading concept.
+  const paragraphs = rubric.map(cr => {
+    const heading = cr.description?.trim() || cr.long_description?.trim() || ''
+    const points = typeof cr.points === 'number' ? ` (${cr.points} pts)` : ''
+    const long = cr.long_description?.trim() && cr.long_description !== heading
+      ? `\n${cr.long_description.trim()}`
+      : ''
+    const rating = (cr.ratings ?? [])
+      .filter(r => (r.description || r.long_description) && typeof r.points === 'number')
+      .map(r => `- ${r.description ?? r.long_description}${typeof r.points === 'number' ? ` (${r.points})` : ''}`)
+      .join('\n')
+    return `${heading}${points}${long}${rating ? `\n${rating}` : ''}`.trim()
+  }).filter(Boolean)
+  const body = paragraphs.join('\n\n')
+  if (!body) return null
+  return {
+    user_id: userId,
+    source_type: 'canvas_assignment_rubric',
+    external_id: `canvas_rubric_${assignment.id}`,
+    timestamp: assignment.updated_at ?? null,
+    course_id: `canvas_course_${assignment.course_id}`,
+    classification: 'academic',
+    classification_source: 'heuristic',
+    raw_payload: {
+      canvas_assignment_id: assignment.id,
+      assignment_name: assignment.name,
+      rubric,
+      canvas_course_id: assignment.course_id,
+    },
+    normalized_text: `Rubric for ${assignment.name}\n\n${body}`.trim(),
+    pipeline_version: INGESTION_PIPELINE_VERSION,
+  }
 }
 
 // Fetches the file's fresh metadata (URL contains a short-lived verifier), then

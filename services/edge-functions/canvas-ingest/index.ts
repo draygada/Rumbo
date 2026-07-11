@@ -19,15 +19,23 @@ import {
   CanvasError,
   classifyCanvasFile,
   courseInEnrollmentWindow,
+  getCourseFrontPage,
+  getPageBody,
   isLectureModuleItem,
+  listAnnouncements,
   listAssignments,
   listCourses,
   listFiles,
   listModuleItems,
   listModules,
+  listPages,
   normalizeAssignment,
+  normalizeAssignmentRubric,
+  normalizeCanvasAnnouncement,
   normalizeCanvasFile,
+  normalizeCanvasHome,
   normalizeCanvasLecture,
+  normalizeCanvasPage,
   normalizeCourse,
   normalizeSyllabus,
   type NormalizedRow,
@@ -44,6 +52,10 @@ interface UserSyncResult {
   assignments_seen: number
   files_seen: number
   lectures_seen: number
+  pages_seen: number
+  announcements_seen: number
+  homes_seen: number
+  rubrics_seen: number
   rows_upserted: number
   error?: string
 }
@@ -66,7 +78,7 @@ async function markTokenExpired(admin: ReturnType<typeof createAdminClient>, use
 }
 
 async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: string, creds: CanvasCredentials): Promise<UserSyncResult> {
-  const result: UserSyncResult = { user_id: userId, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, rows_upserted: 0 }
+  const result: UserSyncResult = { user_id: userId, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, pages_seen: 0, announcements_seen: 0, homes_seen: 0, rubrics_seen: 0, rows_upserted: 0 }
 
   let courses
   try {
@@ -96,6 +108,13 @@ async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: str
       result.assignments_seen += assignments.length
       for (const assignment of assignments) {
         rows.push(normalizeAssignment(userId, assignment))
+        // Attached rubric produces its own row (source_type=canvas_assignment_rubric)
+        // so extraction can weight it separately. See canvas.ts normalizeAssignmentRubric.
+        const rubricRow = normalizeAssignmentRubric(userId, assignment as never)
+        if (rubricRow) {
+          rows.push(rubricRow)
+          result.rubrics_seen += 1
+        }
       }
 
       // Only stamp last_assignment_updated_at when the fetch actually succeeded,
@@ -146,6 +165,55 @@ async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: str
         }
       } catch (modErr) {
         console.warn(`[canvas-ingest] modules for course ${course.id} skipped:`, modErr instanceof Error ? modErr.message : modErr)
+      }
+
+      // Home page — one per course when set. Per-course failure isolated.
+      try {
+        const home = await getCourseFrontPage(creds, course.id)
+        if (home) {
+          const homeRow = normalizeCanvasHome(userId, course.id, home)
+          if (homeRow) {
+            rows.push(homeRow)
+            result.homes_seen += 1
+          }
+        }
+      } catch (homeErr) {
+        console.warn(`[canvas-ingest] home for course ${course.id} skipped:`, homeErr instanceof Error ? homeErr.message : homeErr)
+      }
+
+      // Announcements — the last 60 days per course. Bounded window keeps
+      // ingestion cost predictable and matches what students actually
+      // reference ("what did the prof announce this quarter?").
+      try {
+        const sinceIso = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+        const anns = await listAnnouncements(creds, course.id, sinceIso)
+        for (const ann of anns) {
+          const annRow = normalizeCanvasAnnouncement(userId, course.id, ann)
+          if (annRow) {
+            rows.push(annRow)
+            result.announcements_seen += 1
+          }
+        }
+      } catch (annErr) {
+        console.warn(`[canvas-ingest] announcements for course ${course.id} skipped:`, annErr instanceof Error ? annErr.message : annErr)
+      }
+
+      // Pages — every published wiki page. Bodies come in a second call per
+      // page since listPages only gives metadata. Capped at 40 pages per
+      // course to keep the sync bounded; deprioritized long tails.
+      try {
+        const pages = await listPages(creds, course.id)
+        for (const meta of pages.slice(0, 40)) {
+          const full = await getPageBody(creds, course.id, meta.url)
+          if (!full) continue
+          const pageRow = normalizeCanvasPage(userId, course.id, full)
+          if (pageRow) {
+            rows.push(pageRow)
+            result.pages_seen += 1
+          }
+        }
+      } catch (pageErr) {
+        console.warn(`[canvas-ingest] pages for course ${course.id} skipped:`, pageErr instanceof Error ? pageErr.message : pageErr)
       }
     } catch (err) {
       if (err instanceof CanvasError && err.kind === 'rate_limit') {
@@ -228,7 +296,7 @@ Deno.serve(async (req) => {
       .eq('user_id', row.user_id)
       .maybeSingle()
     if (state?.token_status === 'expired') {
-      results.push({ user_id: row.user_id, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, rows_upserted: 0, error: 'token_expired' })
+      results.push({ user_id: row.user_id, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, pages_seen: 0, announcements_seen: 0, homes_seen: 0, rubrics_seen: 0, rows_upserted: 0, error: 'token_expired' })
       continue
     }
 

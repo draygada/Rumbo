@@ -32,18 +32,22 @@ const HARD_CAP = 100
 
 // Source-type priority: lecture > syllabus > assignment > file > course > event.
 const SOURCE_TYPE_PRIORITY: Record<string, number> = {
-  canvas_lecture:       10,
-  canvas_syllabus:       9,
-  manual_syllabus:       9,
-  canvas_file_syllabus:  9,
-  canvas_assignment:     8,
-  manual_assignment:     8,
-  canvas_file_project:   7,
-  canvas_file_rubric:    7,
-  canvas_file_study:     7,
-  canvas_course:         6,
-  manual_course:         6,
-  google_calendar:       5,
+  canvas_lecture:            10,
+  canvas_syllabus:            9,
+  manual_syllabus:            9,
+  canvas_file_syllabus:       9,
+  canvas_home:                9,
+  canvas_assignment:          8,
+  manual_assignment:          8,
+  canvas_assignment_rubric:   8,
+  canvas_file_project:        7,
+  canvas_file_rubric:         7,
+  canvas_file_study:          7,
+  canvas_page:                7,
+  canvas_announcement:        6,
+  canvas_course:              6,
+  manual_course:              6,
+  google_calendar:            5,
 }
 
 interface RunBody {
@@ -172,6 +176,67 @@ function planStructuralNode(row: NormalizedEventRow): StructuralPlan | null {
           mime_type: String(rp['content-type'] ?? rp.mime_type ?? ''),
           url: String(rp.url ?? ''),
         },
+      }
+    }
+    case 'canvas_home': {
+      // Home page's concepts attach directly to the Course node — no separate
+      // "Home" node type in V0. Course node is already ensured elsewhere so
+      // returning label: Course + its id is safe for MERGE.
+      if (!courseId) return null
+      return {
+        label: 'Course',
+        id: courseId,
+        courseId: null,
+        props: {
+          // Small enrichment: store the front-page URL if we have it.
+          home_url: String(rp.html_url ?? ''),
+        },
+      }
+    }
+    case 'canvas_announcement': {
+      // Announcements share the Course node too. Timestamp on the row itself
+      // is enough to enable "what was announced this week" queries later.
+      if (!courseId) return null
+      return {
+        label: 'Course',
+        id: courseId,
+        courseId: null,
+        props: {},
+      }
+    }
+    case 'canvas_page': {
+      // Wiki pages get their own File-shaped node so extraction concepts
+      // attach to something the tutor can cite. Reusing File keeps the
+      // schema surface small; category='page' distinguishes them from the
+      // syllabus/rubric/project/study categories.
+      if (!courseId) return null
+      const pageSlug = String(rp.page_url ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+      if (!pageSlug) return null
+      return {
+        label: 'File',
+        id: `canvas_page_${courseId.replace(/^canvas_course_/, '')}_${pageSlug}`,
+        courseId,
+        props: {
+          course_id: courseId,
+          category: 'page',
+          display_name: String(rp.title ?? row.normalized_text ?? 'Page'),
+          mime_type: 'text/html',
+          url: String(rp.html_url ?? ''),
+        },
+      }
+    }
+    case 'canvas_assignment_rubric': {
+      // Rubric extraction attaches concepts to the parent Assignment node
+      // (canonical_name lookup) so the tutor can answer "how am I graded on X"
+      // by traversing Assignment -> COVERS -> Concept.
+      if (!courseId) return null
+      const canonical = String(rp.assignment_name ?? '').trim()
+      const slug = canonical.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unnamed'
+      return {
+        label: 'Assignment',
+        id: `assignment_${courseId}_${slug}`,
+        courseId,
+        props: {},   // parent Assignment is created via the assignment row; empty props avoids overwriting
       }
     }
     default:
