@@ -189,7 +189,13 @@ function formatRetrievalForPrompt(
     sections.push(`VERBATIM EXCERPTS (from chunk embeddings):\n${chunkSection.join('\n')}`)
   }
   if (hits.length > 0) {
-    const bullets = hits.slice(0, 8).map((h, i) => {
+    // Dedup by source_id so overview + concept-guided both listing the same
+    // source doesn't waste tokens or confuse the model.
+    const seen = new Set<string>()
+    const bullets: string[] = []
+    for (const h of hits) {
+      if (seen.has(h.source_id)) continue
+      seen.add(h.source_id)
       const parts: string[] = []
       const courseTag = h.course_code || h.course_name
       if (courseTag) parts.push(`[${courseTag}${h.course_term ? ` · ${h.course_term}` : ''}]`)
@@ -197,8 +203,14 @@ function formatRetrievalForPrompt(
       if (h.slide_number != null) parts.push(`(slide ${h.slide_number})`)
       if (h.source_url) parts.push(`<${h.source_url}>`)
       if (h.concept_name) parts.push(`— concept: ${h.concept_name}`)
-      return `${i + 1}. ${parts.join(' ')}`
-    })
+      let line = `${bullets.length + 1}. ${parts.join(' ')}`
+      if (h.body_text && h.body_text.trim().length > 0) {
+        const clean = h.body_text.replace(/\s+/g, ' ').slice(0, 900)
+        line += `\n     EXCERPT: ${clean}${h.body_text.length > 900 ? '…' : ''}`
+      }
+      bullets.push(line)
+      if (bullets.length >= 8) break
+    }
     sections.push(`CONCEPT-BASED SOURCES:\n${bullets.join('\n')}`)
   }
   if (sections.length === 0) return '(no relevant sources in your Rumbo brain)'

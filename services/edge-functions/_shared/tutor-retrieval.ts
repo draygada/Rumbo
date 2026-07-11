@@ -25,6 +25,7 @@ export interface RetrievalHit {
   is_primary: boolean
   weight: number | null
   first_seen_at: string | null
+  body_text: string | null
 }
 
 // -----------------------------------------------------------------------------
@@ -311,7 +312,7 @@ export async function retrieveCourseOverview(
             null AS slide_number,
             coalesce(cov.is_primary, false) AS is_primary,
             coalesce(cov.weight, 0.3) AS weight,
-            concept.first_seen_at AS first_seen_at
+            concept.first_seen_at AS first_seen_at, substring(coalesce(source.body_text, ""), 0, 1200) AS body_text
      ORDER BY overview_boost DESC, cov.is_primary DESC NULLS LAST, cov.weight DESC NULLS LAST
      LIMIT $limit`,
     { userId: args.userId, courseId: args.courseId, limit },
@@ -347,7 +348,7 @@ export async function retrieveWithinCourse(
             null AS slide_number,
             cov.is_primary AS is_primary,
             cov.weight AS weight,
-            concept.first_seen_at AS first_seen_at
+            concept.first_seen_at AS first_seen_at, substring(coalesce(source.body_text, ""), 0, 1200) AS body_text
      ORDER BY cov.is_primary DESC, cov.weight DESC
      LIMIT $limit`,
     { userId: args.userId, courseId: args.courseId, conceptEmbedding: args.conceptEmbedding, limit },
@@ -381,7 +382,7 @@ export async function retrieveAcrossCourses(
             source.slide_number AS slide_number,
             cov.is_primary AS is_primary,
             cov.weight AS weight,
-            concept.first_seen_at AS first_seen_at
+            concept.first_seen_at AS first_seen_at, substring(coalesce(source.body_text, ""), 0, 1200) AS body_text
      ORDER BY course.term_end ASC, cov.weight DESC
      LIMIT $limit`,
     { userId: args.userId, conceptId: args.conceptId, limit },
