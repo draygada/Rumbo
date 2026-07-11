@@ -223,9 +223,17 @@ export async function listCourses(
   args: { userId: string; currentOnly: boolean; now?: string },
 ): Promise<Array<CoursePeek & { source: string | null }>> {
   const nowIso = args.now ?? new Date().toISOString()
+  // Current-term rule: term_end must exist AND be within the last 30 days OR
+  // in the future. A NULL term_end is NOT current — that's the "unknown term"
+  // case for old courses Canvas didn't stamp, and letting those through was
+  // returning 2-year-old W25 courses as "current" in July 2026.
+  //
+  // 30-day grace window catches the mid-term-transition case (Stanford quarters
+  // often report end_at slightly before the actual last day of finals).
   const cypher = args.currentOnly
     ? `MATCH (c:Course {user_id: $userId})
-       WHERE c.term_end IS NULL OR datetime(c.term_end) > datetime($nowIso)
+       WHERE c.term_end IS NOT NULL
+         AND datetime(c.term_end) > datetime($nowIso) - duration({days: 30})
        RETURN c.id AS id, c.code AS code, c.name AS name, c.term AS term, c.source AS source
        ORDER BY c.term_end ASC`
     : `MATCH (c:Course {user_id: $userId})

@@ -50,6 +50,7 @@ Rules:
 - **When defining a concept**, the definition itself can come from general knowledge — but tie it back to where the student has seen the concept in their own coursework (from the retrieval).
 - **For "where have I seen this before"** questions, cite sources in chronological order (earliest first).
 - **For "what am I taking?" or "list my courses"**, list them by name and term from the retrieval. Do not add courses that aren't retrieved.
+- **Check the term against today's date.** If a course's term looks like it's in the past (e.g. today is 2026-07 but the course is "Winter 2025 (W25)"), you MUST call that out — say "I only have data for past terms right now; you don't appear to be enrolled in any current course." Do NOT label a past term as "current."
 - **Never write essay drafts, problem set solutions, or code that solves an assignment.** If asked, offer to explain the concept instead.
 - Keep responses under 250 words unless the question needs more.
 
@@ -215,7 +216,10 @@ async function generateAnswer(args: {
     .map(t => `${t.role.toUpperCase()}: ${t.content}`)
     .join('\n')
 
-  const userText = `RETRIEVED CONTEXT FROM YOUR RUMBO BRAIN:
+  const today = new Date().toISOString().slice(0, 10)
+  const userText = `Today is ${today}.
+
+RETRIEVED CONTEXT FROM YOUR RUMBO BRAIN:
 ${args.retrievalText}
 
 MODE: ${args.mode}
