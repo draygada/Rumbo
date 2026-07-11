@@ -27,42 +27,50 @@ import {
 } from '../_shared/gemini.ts'
 import {
   computeConfidence,
+  listCourses,
   resolveConcept,
   resolveCourseByCode,
   resolveCourseByEmbedding,
   retrieveAcrossCourses,
+  retrieveCourseOverview,
   retrieveWithinCourse,
   type RetrievalHit,
 } from '../_shared/tutor-retrieval.ts'
 
-const TUTOR_SYSTEM_PROMPT = `You are Rumbo, an academic tutor. You explain concepts, connect them across the student's courses, and help them find material — but you never produce submittable work.
+const TUTOR_SYSTEM_PROMPT = `You are Rumbo, a personal academic tutor. The student's own coursework is retrieved for you as a RETRIEVED CONTEXT block. That block is the source of truth about what THIS student is doing.
 
 Rules:
-- Ground every factual claim about the student's coursework in the retrieved sources. When you cite a lecture, file, or assignment, use the exact title provided and include the URL if present.
-- When defining a concept, use your general knowledge — the student wants a definition, not a quote from their notes. Then say where they've seen it in their own coursework.
-- Prefer chronological ordering ("you first saw this in ...") when the student asks "where have I seen this before".
-- If the retrieval is empty, say so honestly. Do NOT invent sources.
-- Never write essay drafts, problem set solutions, or code that solves an assignment. If asked, offer to explain the concept instead.
-- Keep responses under 250 words unless the question genuinely needs more.
+- **Ground every claim about the student in the RETRIEVED CONTEXT.** If the context lists specific lectures, files, assignments, or courses, you MUST reference them by their exact title. Do not paraphrase them into generic categories.
+- **Do not answer from general knowledge alone when the student asks about their own coursework.** If the retrieval doesn't have what they asked for, say so — do NOT fill the gap with a Wikipedia-style intro. Example: if asked "what did my education class cover?" and no education-course sources were retrieved, say "I don't see materials from an education course in your Rumbo yet — can you tell me the course code or upload the syllabus?" — do NOT lecture about what education classes typically cover.
+- **When defining a concept**, the definition itself can come from general knowledge — but tie it back to where the student has seen the concept in their own coursework (from the retrieval).
+- **For "where have I seen this before"** questions, cite sources in chronological order (earliest first).
+- **For "what am I taking?" or "list my courses"**, list them by name and term from the retrieval. Do not add courses that aren't retrieved.
+- **Never write essay drafts, problem set solutions, or code that solves an assignment.** If asked, offer to explain the concept instead.
+- Keep responses under 250 words unless the question needs more.
 
 Format:
-- One paragraph of explanation. Then a short bulleted list of source pointers if relevant.`
+- Two or three sentences of explanation. If sources apply, refer to them by exact title in the body of the response ("your CS 106A syllabus covers…"). Do not paste a bulleted source list at the end — the UI renders sources separately.`
 
 const MODE_CLASSIFIER_SCHEMA: GeminiJsonSchema = {
   type: 'object',
   properties: {
-    mode: { type: 'string', enum: ['within_course', 'cross_course', 'small_talk'] },
-    course_reference: { type: 'string' }, // course code or descriptor as spoken
-    concept_query: { type: 'string' },    // the concept the student is asking about
+    mode: {
+      type: 'string',
+      enum: ['within_course', 'cross_course', 'list_courses', 'small_talk'],
+    },
+    course_reference: { type: 'string' },      // course code / descriptor as spoken
+    concept_query: { type: 'string' },         // the concept if any
+    list_scope: { type: 'string', enum: ['all', 'current'] },
     reasoning: { type: 'string' },
   },
-  required: ['mode', 'concept_query'],
+  required: ['mode'],
 }
 
 interface ModeClassification {
-  mode: 'within_course' | 'cross_course' | 'small_talk'
+  mode: 'within_course' | 'cross_course' | 'list_courses' | 'small_talk'
   course_reference?: string
-  concept_query: string
+  concept_query?: string
+  list_scope?: 'all' | 'current'
   reasoning?: string
 }
 
@@ -112,14 +120,22 @@ async function classifyMode(question: string, history: TurnRow[]): Promise<ModeC
     .map(t => `${t.role}: ${t.content}`)
     .join('\n')
   const parsed = await geminiClassifyJson<ModeClassification>({
-    system: `Classify the student's question into one retrieval mode.
-- "within_course": student asked about a specific course (e.g. "in CS 146J, where did we cover REST?")
-- "cross_course": student wants to know where a concept appeared across their coursework (e.g. "remind me what a Jacobian is and where I've seen it")
-- "small_talk": greeting, meta, or non-academic — no retrieval needed
+    system: `Classify the student's question into ONE retrieval mode.
 
-Also extract:
-- course_reference: the exact course code, name, or descriptor the student uttered (empty if none)
-- concept_query: the specific concept phrase or topic they're asking about
+MODES:
+- "within_course": student asked about a specific course. Any of:
+  - Explicit code: "in CS 146J", "EDUC 475", "COLLEGE 101"
+  - Subject + "class"/"course": "my education class", "the ML course", "my stats course"
+  - Descriptor: "the fullstack class", "the class I'm taking on rest APIs"
+  DEFAULT to within_course when the student's question is anchored on a specific class, even if they didn't cite a code.
+- "cross_course": student asks WHERE across their coursework a concept has appeared. E.g. "where have I seen jacobians before?", "remind me what a gradient is and where I've encountered it"
+- "list_courses": student wants a listing of their classes. E.g. "what am I taking?", "list my current classes", "show me all my past courses". Set list_scope='current' for current-term questions, 'all' for lifetime.
+- "small_talk": greeting, meta, or non-academic
+
+FIELDS:
+- course_reference: the course code, subject, or descriptor uttered — as literally as possible. Include "education", "college", "CS", etc.
+- concept_query: the specific topic (only for within_course + cross_course).
+- list_scope: only when mode=list_courses.
 `,
     userText: `Recent conversation:
 ${historyText}
@@ -131,20 +147,33 @@ Current question: ${question}`,
   return parsed ?? { mode: 'cross_course', concept_query: question }
 }
 
-// Compact retrieval hits into a compact bullet list for prompt injection.
-function formatRetrievalForPrompt(hits: RetrievalHit[]): string {
-  if (hits.length === 0) return '(no relevant sources in your Rumbo brain)'
-  const bullets = hits.slice(0, 12).map((h, i) => {
-    const parts: string[] = []
-    const courseTag = h.course_code || h.course_name
-    if (courseTag) parts.push(`[${courseTag}${h.course_term ? ` · ${h.course_term}` : ''}]`)
-    parts.push(`${h.source_label}: ${h.source_title}`)
-    if (h.slide_number != null) parts.push(`(slide ${h.slide_number})`)
-    if (h.source_url) parts.push(`<${h.source_url}>`)
-    if (h.concept_name) parts.push(`— concept: ${h.concept_name}`)
-    return `${i + 1}. ${parts.join(' ')}`
-  })
-  return bullets.join('\n')
+function formatRetrievalForPrompt(
+  hits: RetrievalHit[],
+  courses: Array<{ code: string | null; name: string | null; term: string | null }>,
+): string {
+  const sections: string[] = []
+  if (courses.length > 0) {
+    const lines = courses.map((c, i) => {
+      const label = c.code || c.name || 'Untitled course'
+      return `${i + 1}. ${label}${c.name && c.code ? ` — ${c.name}` : ''}${c.term ? ` (${c.term})` : ''}`
+    })
+    sections.push(`COURSES:\n${lines.join('\n')}`)
+  }
+  if (hits.length > 0) {
+    const bullets = hits.slice(0, 12).map((h, i) => {
+      const parts: string[] = []
+      const courseTag = h.course_code || h.course_name
+      if (courseTag) parts.push(`[${courseTag}${h.course_term ? ` · ${h.course_term}` : ''}]`)
+      parts.push(`${h.source_label}: ${h.source_title}`)
+      if (h.slide_number != null) parts.push(`(slide ${h.slide_number})`)
+      if (h.source_url) parts.push(`<${h.source_url}>`)
+      if (h.concept_name) parts.push(`— concept: ${h.concept_name}`)
+      return `${i + 1}. ${parts.join(' ')}`
+    })
+    sections.push(`SOURCES:\n${bullets.join('\n')}`)
+  }
+  if (sections.length === 0) return '(no relevant sources in your Rumbo brain)'
+  return sections.join('\n\n')
 }
 
 async function generateAnswer(args: {
@@ -313,17 +342,31 @@ Deno.serve(async (req) => {
 
   // 3. Retrieval
   let hits: RetrievalHit[] = []
-  const conceptEmbeds = await geminiEmbedBatch([mode.concept_query || question])
+  let coursesForPrompt: Array<{ code: string | null; name: string | null; term: string | null }> = []
+  const needsConceptEmbed = mode.mode === 'within_course' || mode.mode === 'cross_course'
+  const conceptEmbeds = needsConceptEmbed
+    ? await geminiEmbedBatch([mode.concept_query || question])
+    : []
   const conceptEmb = conceptEmbeds[0]
 
   let topScore: number | null = null
   let runnerUpScore: number | null = null
+  let resolvedCourseCode: string | null = null
 
-  if (mode.mode === 'within_course' && mode.course_reference) {
-    // Resolve course by code first, embedding second.
-    let courses = await resolveCourseByCode(g, { userId, code: mode.course_reference })
-    if (courses.length === 0) {
-      const courseEmbeds = await geminiEmbedBatch([mode.course_reference])
+  if (mode.mode === 'list_courses') {
+    const scope = mode.list_scope ?? 'current'
+    const courses = await listCourses(g, { userId, currentOnly: scope === 'current' })
+    coursesForPrompt = courses.map(c => ({ code: c.code, name: c.name, term: c.term }))
+    // No RetrievalHit rows here — surface only the course list. Confidence
+    // depends purely on whether we found any.
+    topScore = courses.length > 0 ? 1 : 0
+  } else if (mode.mode === 'within_course') {
+    // Even if no course_reference, try to resolve the whole question against
+    // course names (helps when the router leaves the field empty).
+    const ref = mode.course_reference || mode.concept_query || question
+    let courses = ref ? await resolveCourseByCode(g, { userId, code: ref }) : []
+    if (courses.length === 0 && ref) {
+      const courseEmbeds = await geminiEmbedBatch([ref])
       if (courseEmbeds[0]) {
         const withScore = await resolveCourseByEmbedding(g, {
           userId,
@@ -332,12 +375,21 @@ Deno.serve(async (req) => {
         courses = withScore.slice(0, 3).map(c => ({ id: c.id, code: c.code, name: c.name, term: c.term }))
       }
     }
-    if (courses.length > 0 && conceptEmb) {
-      hits = await retrieveWithinCourse(g, {
-        userId,
-        courseId: courses[0].id,
-        conceptEmbedding: conceptEmb,
-      })
+    if (courses.length > 0) {
+      resolvedCourseCode = courses[0].code
+      // Concept-guided retrieval if we have a concept embedding, else a plain
+      // overview of what's in that course.
+      if (conceptEmb) {
+        hits = await retrieveWithinCourse(g, {
+          userId,
+          courseId: courses[0].id,
+          conceptEmbedding: conceptEmb,
+        })
+      }
+      if (hits.length === 0) {
+        hits = await retrieveCourseOverview(g, { userId, courseId: courses[0].id })
+      }
+      topScore = hits.length > 0 ? 0.9 : 0.4
     }
   } else if (mode.mode === 'cross_course' && conceptEmb) {
     const resolved = await resolveConcept(g, { userId, embedding: conceptEmb })
@@ -351,8 +403,9 @@ Deno.serve(async (req) => {
   const confidence = computeConfidence({ topScore, runnerUpScore, hitCount: hits.length })
 
   // 4. LLM answer
-  const retrievalText = formatRetrievalForPrompt(hits)
+  const retrievalText = formatRetrievalForPrompt(hits, coursesForPrompt)
   const answer = await generateAnswer({ question, history, retrievalText, mode: mode.mode })
+  void resolvedCourseCode // available for future prompt hints; unused for now
 
   // 5. Persist turns
   const now = new Date().toISOString()
@@ -400,18 +453,28 @@ Deno.serve(async (req) => {
     })
   }
 
+  const sourceEntries = mode.mode === 'list_courses'
+    ? coursesForPrompt.map(c => ({
+        title: c.code || c.name || 'Course',
+        url: null,
+        course: c.name,
+        term: c.term,
+        slide_number: null,
+      }))
+    : hits.slice(0, 8).map(h => ({
+        title: h.source_title,
+        url: h.source_url,
+        course: h.course_code || h.course_name,
+        term: h.course_term,
+        slide_number: h.slide_number,
+      }))
+
   return jsonResponse({
     conversation_id: conversationId,
     answer,
     mode: mode.mode,
     confidence,
-    sources: hits.slice(0, 8).map(h => ({
-      title: h.source_title,
-      url: h.source_url,
-      course: h.course_code || h.course_name,
-      term: h.course_term,
-      slide_number: h.slide_number,
-    })),
+    sources: sourceEntries,
     turn_id: astTurn?.id ?? null,
   })
 })

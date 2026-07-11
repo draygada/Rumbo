@@ -49,18 +49,50 @@ export async function resolveConcept(
 // Course resolution — three paths per Features/ai-tutor.md §6.
 // -----------------------------------------------------------------------------
 
+// Stored codes look like F24-COLLEGE-101-64/65 or W26-EDUC-475-01. Users say
+// "college 101" or "education 475". We normalize both sides to a compact core
+// (letters+digits, whitespace collapsed) and require the query core to appear
+// as a substring of the code's core. Falls back to name CONTAINS.
+function courseCodeCore(input: string): string {
+  return input
+    .toLowerCase()
+    // strip common term prefixes
+    .replace(/^(f|w|sp|su|fa|wi|sm|au)\d{2}-/i, '')
+    // strip section suffixes  -01, -64/65, /ENGLISH-1C-01
+    .replace(/[\/-]\d+.*$/, '')
+    // strip cross-listing suffix /ENGLISH-1C-01
+    .replace(/\/[a-z]+.*$/i, '')
+    // collapse punctuation into single space
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
 export async function resolveCourseByCode(
   g: Neo4jClient,
   args: { userId: string; code: string },
 ): Promise<CoursePeek[]> {
-  // Case-insensitive prefix match on Course.code; falls back to name.
+  const core = courseCodeCore(args.code)
+  if (!core) return []
+  // Match by core substring on both sides. Cypher has no built-in helper for
+  // this normalization so we inline it as replace() chains.
   return (await g.run<CoursePeek>(
     `MATCH (c:Course {user_id: $userId})
-     WHERE toLower(coalesce(c.code, '')) STARTS WITH toLower($code)
-        OR toLower(coalesce(c.name, '')) CONTAINS toLower($code)
+     WITH c,
+          toLower(
+            replace(
+              replace(
+                replace(coalesce(c.code, ''), '/', ' '),
+                '-', ' '
+              ),
+              '_', ' '
+            )
+          ) AS codeCore,
+          toLower(coalesce(c.name, '')) AS nameLower
+     WHERE codeCore CONTAINS $core
+        OR nameLower CONTAINS $core
      RETURN c.id AS id, c.code AS code, c.name AS name, c.term AS term
      LIMIT 5`,
-    { userId: args.userId, code: args.code },
+    { userId: args.userId, core },
   )) as CoursePeek[]
 }
 
@@ -76,6 +108,59 @@ export async function resolveCourseByEmbedding(
      ORDER BY score DESC`,
     { userId: args.userId, embedding: args.embedding },
   )) as Array<CoursePeek & { score: number }>
+}
+
+// -----------------------------------------------------------------------------
+// Retrieval mode: list courses (all, or current term)
+// -----------------------------------------------------------------------------
+
+export async function listCourses(
+  g: Neo4jClient,
+  args: { userId: string; currentOnly: boolean; now?: string },
+): Promise<Array<CoursePeek & { source: string | null }>> {
+  const nowIso = args.now ?? new Date().toISOString()
+  const cypher = args.currentOnly
+    ? `MATCH (c:Course {user_id: $userId})
+       WHERE c.term_end IS NULL OR datetime(c.term_end) > datetime($nowIso)
+       RETURN c.id AS id, c.code AS code, c.name AS name, c.term AS term, c.source AS source
+       ORDER BY c.term_end ASC`
+    : `MATCH (c:Course {user_id: $userId})
+       RETURN c.id AS id, c.code AS code, c.name AS name, c.term AS term, c.source AS source
+       ORDER BY c.term_end DESC, c.term DESC`
+  return (await g.run(cypher, { userId: args.userId, nowIso })) as Array<
+    CoursePeek & { source: string | null }
+  >
+}
+
+// Retrieval by course only (no concept filter) — for "tell me about my X class".
+export async function retrieveCourseOverview(
+  g: Neo4jClient,
+  args: { userId: string; courseId: string; limit?: number },
+): Promise<RetrievalHit[]> {
+  const limit = args.limit ?? 15
+  return (await g.run<RetrievalHit>(
+    `MATCH (course:Course {id: $courseId, user_id: $userId})
+     OPTIONAL MATCH (course)-[:CONTAINS]->(source)-[cov:COVERS]->(concept:Concept)
+     WITH source, cov, concept, course
+     WHERE source IS NOT NULL
+     RETURN source.id AS source_id,
+            labels(source)[0] AS source_label,
+            coalesce(source.title, source.name, source.display_name) AS source_title,
+            coalesce(source.url, source.html_url) AS source_url,
+            course.id AS course_id,
+            course.code AS course_code,
+            course.name AS course_name,
+            course.term AS course_term,
+            coalesce(concept.name, '') AS concept_name,
+            coalesce(concept.id, '') AS concept_id,
+            null AS slide_number,
+            coalesce(cov.is_primary, false) AS is_primary,
+            coalesce(cov.weight, 0.5) AS weight,
+            concept.first_seen_at AS first_seen_at
+     ORDER BY cov.is_primary DESC, cov.weight DESC
+     LIMIT $limit`,
+    { userId: args.userId, courseId: args.courseId, limit },
+  )) as RetrievalHit[]
 }
 
 // -----------------------------------------------------------------------------
