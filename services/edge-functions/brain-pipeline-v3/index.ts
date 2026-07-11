@@ -206,9 +206,20 @@ function planStructuralNode(row: NormalizedEventRow): StructuralPlan | null {
     }
     case 'canvas_home': {
       if (!courseId) return null
+      // Home page gets its own File node (category='home') so its body_text
+      // and body_embedding are retrievable via fan-out. Otherwise 'What's on
+      // the home page?' returns nothing because Course itself has no body.
       return {
-        label: 'Course', id: courseId, courseId: null,
-        props: { home_url: String(rp.html_url ?? '') },
+        label: 'File',
+        id: `canvas_home_${courseId.replace(/^canvas_course_/, '')}`,
+        courseId,
+        props: {
+          course_id: courseId,
+          category: 'home',
+          display_name: String(rp.title ?? 'Course Home Page'),
+          mime_type: 'text/html',
+          url: String(rp.html_url ?? ''),
+        },
       }
     }
     case 'canvas_announcement': {
