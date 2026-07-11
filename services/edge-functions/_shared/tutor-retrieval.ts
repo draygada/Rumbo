@@ -28,6 +28,110 @@ export interface RetrievalHit {
 }
 
 // -----------------------------------------------------------------------------
+// Doc-body fan-out — the v3 semantic retrieval primitive.
+//
+// Query embedding hits every content label's body_embedding index in parallel.
+// Each hit is a source doc that vector-matched the question directly. Fused
+// with concept-based retrieval by the caller.
+// -----------------------------------------------------------------------------
+
+const CONTENT_LABELS = ['Lecture', 'Assignment', 'File', 'Syllabus'] as const
+
+export interface DocHit {
+  source_id: string
+  source_label: string
+  source_title: string
+  source_url: string | null
+  score: number
+  course_id: string | null
+  course_code: string | null
+  course_name: string | null
+  course_term: string | null
+}
+
+export async function fanOutDocSearch(
+  g: Neo4jClient,
+  args: { userId: string; embedding: number[]; perLabelK?: number; minScore?: number },
+): Promise<DocHit[]> {
+  const k = args.perLabelK ?? 5
+  const minScore = args.minScore ?? 0.5
+
+  // Neo4j vector indexes are per-label; fan out with Promise.all so each
+  // label's query runs in parallel against Aura.
+  const perLabelHits = await Promise.all(
+    CONTENT_LABELS.map(async (label) => {
+      const indexName = `${label.toLowerCase()}_body_embedding`
+      const rows = await g.run<DocHit>(
+        `CALL db.index.vector.queryNodes('${indexName}', $k, $embedding)
+         YIELD node, score
+         WHERE node.user_id = $userId AND score >= $minScore
+         OPTIONAL MATCH (course:Course {user_id: $userId})-[:CONTAINS]->(node)
+         RETURN node.id AS source_id,
+                labels(node)[0] AS source_label,
+                coalesce(node.title, node.name, node.display_name, node.body_text) AS source_title,
+                coalesce(node.url, node.html_url) AS source_url,
+                score,
+                course.id AS course_id,
+                course.code AS course_code,
+                course.name AS course_name,
+                course.term AS course_term
+         ORDER BY score DESC`,
+        { userId: args.userId, embedding: args.embedding, k, minScore },
+      ).catch(() => [] as DocHit[])
+      return rows
+    }),
+  )
+
+  // Flatten + sort by score.
+  const all = perLabelHits.flat()
+  all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+  return all
+}
+
+// Chunk-level fan-out — same shape as docs but on Chunk.body_embedding.
+// Chunks return their parent doc via HAS_CHUNK so caller can group.
+export interface ChunkHit {
+  chunk_id: string
+  parent_id: string
+  parent_label: string
+  chunk_index: number
+  heading: string | null
+  text: string
+  score: number
+  course_id: string | null
+  course_code: string | null
+  course_name: string | null
+}
+
+export async function chunkFanOutSearch(
+  g: Neo4jClient,
+  args: { userId: string; embedding: number[]; topK?: number; minScore?: number },
+): Promise<ChunkHit[]> {
+  const k = args.topK ?? 5
+  const minScore = args.minScore ?? 0.5
+  const rows = await g.run<ChunkHit>(
+    `CALL db.index.vector.queryNodes('chunk_body_embedding', $k, $embedding)
+     YIELD node, score
+     WHERE node.user_id = $userId AND score >= $minScore
+     OPTIONAL MATCH (parent {id: node.parent_id, user_id: $userId})
+     OPTIONAL MATCH (course:Course {user_id: $userId})-[:CONTAINS]->(parent)
+     RETURN node.id AS chunk_id,
+            node.parent_id AS parent_id,
+            node.parent_label AS parent_label,
+            node.chunk_index AS chunk_index,
+            node.heading AS heading,
+            node.text AS text,
+            score,
+            course.id AS course_id,
+            course.code AS course_code,
+            course.name AS course_name
+     ORDER BY score DESC`,
+    { userId: args.userId, embedding: args.embedding, k, minScore },
+  ).catch(() => [] as ChunkHit[])
+  return rows
+}
+
+// -----------------------------------------------------------------------------
 // Concept resolution: vector-similarity lookup by embedding.
 // -----------------------------------------------------------------------------
 

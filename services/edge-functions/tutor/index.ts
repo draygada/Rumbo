@@ -26,7 +26,9 @@ import {
   type GeminiJsonSchema,
 } from '../_shared/gemini.ts'
 import {
+  chunkFanOutSearch,
   computeConfidence,
+  fanOutDocSearch,
   listCourses,
   resolveConcept,
   resolveCourseByCode,
@@ -34,6 +36,8 @@ import {
   retrieveAcrossCourses,
   retrieveCourseOverview,
   retrieveWithinCourse,
+  type ChunkHit,
+  type DocHit,
   type RetrievalHit,
 } from '../_shared/tutor-retrieval.ts'
 
@@ -151,6 +155,8 @@ Current question: ${question}`,
 function formatRetrievalForPrompt(
   hits: RetrievalHit[],
   courses: Array<{ code: string | null; name: string | null; term: string | null }>,
+  docHits: DocHit[] = [],
+  chunkHits: ChunkHit[] = [],
 ): string {
   const sections: string[] = []
   if (courses.length > 0) {
@@ -160,8 +166,26 @@ function formatRetrievalForPrompt(
     })
     sections.push(`COURSES:\n${lines.join('\n')}`)
   }
+  // De-dup source hits: prefer semantic doc-match info over concept-match info.
+  const docSection = docHits.slice(0, 8).map((d, i) => {
+    const courseTag = d.course_code || d.course_name
+    const tag = courseTag ? `[${courseTag}${d.course_term ? ` · ${d.course_term}` : ''}]` : ''
+    const url = d.source_url ? ` <${d.source_url}>` : ''
+    return `${i + 1}. ${tag} ${d.source_label}: ${d.source_title}${url}  (semantic score ${d.score.toFixed(2)})`
+  })
+  if (docSection.length > 0) {
+    sections.push(`SEMANTIC DOC MATCHES (from question embedding):\n${docSection.join('\n')}`)
+  }
+  const chunkSection = chunkHits.slice(0, 5).map((c, i) => {
+    const heading = c.heading ? `[${c.heading}] ` : ''
+    const excerpt = (c.text || '').replace(/\s+/g, ' ').slice(0, 400)
+    return `${i + 1}. ${heading}${excerpt}${c.text.length > 400 ? '...' : ''}`
+  })
+  if (chunkSection.length > 0) {
+    sections.push(`VERBATIM EXCERPTS (from chunk embeddings):\n${chunkSection.join('\n')}`)
+  }
   if (hits.length > 0) {
-    const bullets = hits.slice(0, 12).map((h, i) => {
+    const bullets = hits.slice(0, 8).map((h, i) => {
       const parts: string[] = []
       const courseTag = h.course_code || h.course_name
       if (courseTag) parts.push(`[${courseTag}${h.course_term ? ` · ${h.course_term}` : ''}]`)
@@ -171,7 +195,7 @@ function formatRetrievalForPrompt(
       if (h.concept_name) parts.push(`— concept: ${h.concept_name}`)
       return `${i + 1}. ${parts.join(' ')}`
     })
-    sections.push(`SOURCES:\n${bullets.join('\n')}`)
+    sections.push(`CONCEPT-BASED SOURCES:\n${bullets.join('\n')}`)
   }
   if (sections.length === 0) return '(no relevant sources in your Rumbo brain)'
   return sections.join('\n\n')
@@ -407,10 +431,32 @@ Deno.serve(async (req) => {
     }
   }
 
-  const confidence = computeConfidence({ topScore, runnerUpScore, hitCount: hits.length })
+  // 3.5. Semantic fan-out — query embedding hits every content label's
+  // body_embedding index + chunk embeddings in parallel. Adds SEMANTIC layer
+  // on top of the concept-based retrieval above.
+  let docHits: DocHit[] = []
+  let chunkHits: ChunkHit[] = []
+  if (conceptEmb && mode.mode !== 'list_courses' && mode.mode !== 'small_talk') {
+    const questionEmbeds = await geminiEmbedBatch([question])
+    const questionEmb = questionEmbeds[0] ?? conceptEmb
+    const [docs, chunks] = await Promise.all([
+      fanOutDocSearch(g, { userId, embedding: questionEmb, perLabelK: 4, minScore: 0.55 }),
+      chunkFanOutSearch(g, { userId, embedding: questionEmb, topK: 5, minScore: 0.55 }),
+    ])
+    docHits = docs
+    chunkHits = chunks
+    // Fold semantic hit strength into confidence — the highest doc score is a
+    // strong signal even when concept-path retrieval came back empty.
+    if (docs.length > 0 && (topScore == null || docs[0].score > topScore)) {
+      topScore = docs[0].score
+    }
+  }
+
+  const totalHitCount = hits.length + docHits.length + chunkHits.length
+  const confidence = computeConfidence({ topScore, runnerUpScore, hitCount: totalHitCount })
 
   // 4. LLM answer
-  const retrievalText = formatRetrievalForPrompt(hits, coursesForPrompt)
+  const retrievalText = formatRetrievalForPrompt(hits, coursesForPrompt, docHits, chunkHits)
   const answer = await generateAnswer({ question, history, retrievalText, mode: mode.mode })
   void resolvedCourseCode // available for future prompt hints; unused for now
 
@@ -460,21 +506,55 @@ Deno.serve(async (req) => {
     })
   }
 
-  const sourceEntries = mode.mode === 'list_courses'
-    ? coursesForPrompt.map(c => ({
-        title: c.code || c.name || 'Course',
-        url: null,
-        course: c.name,
-        term: c.term,
+  let sourceEntries: Array<{
+    title: string
+    url: string | null
+    course: string | null
+    term: string | null
+    slide_number: number | null
+  }>
+  if (mode.mode === 'list_courses') {
+    sourceEntries = coursesForPrompt.map(c => ({
+      title: c.code || c.name || 'Course',
+      url: null,
+      course: c.name,
+      term: c.term,
+      slide_number: null,
+    }))
+  } else {
+    // Merge semantic doc hits + concept-based hits, dedup by source_id.
+    const seen = new Set<string>()
+    const merged: Array<{
+      title: string
+      url: string | null
+      course: string | null
+      term: string | null
+      slide_number: number | null
+    }> = []
+    for (const d of docHits.slice(0, 6)) {
+      if (seen.has(d.source_id)) continue
+      seen.add(d.source_id)
+      merged.push({
+        title: d.source_title,
+        url: d.source_url,
+        course: d.course_code || d.course_name,
+        term: d.course_term,
         slide_number: null,
-      }))
-    : hits.slice(0, 8).map(h => ({
+      })
+    }
+    for (const h of hits.slice(0, 6)) {
+      if (seen.has(h.source_id)) continue
+      seen.add(h.source_id)
+      merged.push({
         title: h.source_title,
         url: h.source_url,
         course: h.course_code || h.course_name,
         term: h.course_term,
         slide_number: h.slide_number,
-      }))
+      })
+    }
+    sourceEntries = merged.slice(0, 10)
+  }
 
   return jsonResponse({
     conversation_id: conversationId,

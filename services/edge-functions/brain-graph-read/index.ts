@@ -1,12 +1,15 @@
 // brain-graph-read — user-scoped graph read for the /brain page.
 //
-// Phase 4: replaces the client's direct Postgres reads of `graph_nodes` +
-// `node_mentions`. Returns the same shape /brain expects (list of concepts +
-// mentions), but concepts now come from Neo4j. Mentions still come from
-// Postgres until Phase 6 backfills them into Neo4j as COVERS edges.
+// v3 update: reads concepts + COVERS edges from Neo4j. Maps Neo4j source
+// node ids back to Postgres normalized_events UUIDs so the Brain.tsx
+// record-node visualization stays intact.
 //
-// Auth: standard user JWT (verify_jwt = true). Every read is scoped by the
-// caller's user_id so there's no cross-user leakage.
+// Response shape (backward-compatible):
+//   concepts: [{id, name, normalized_name, mention_count}]
+//   mentions: [{concept_id, source_record_id}]  — source_record_id is the
+//             Postgres normalized_events.id UUID
+//
+// Auth: standard user JWT.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
@@ -18,6 +21,12 @@ interface ConceptRow {
   name: string
   normalized_name: string
   mention_count: number
+}
+
+interface CoversRow {
+  concept_id: string
+  source_id: string
+  source_label: string
 }
 
 async function getUserIdFromRequest(req: Request): Promise<string | null> {
@@ -35,6 +44,82 @@ async function getUserIdFromRequest(req: Request): Promise<string | null> {
   return data.user.id
 }
 
+// Neo4j source_id → set of Postgres normalized_events.id UUIDs.
+// Some Neo4j nodes (Assignment) bundle multiple Postgres rows; a single COVERS
+// edge from the bundled Assignment expands to one mention per record.
+function buildSourceMap(
+  events: Array<{
+    id: string
+    source_type: string
+    external_id: string
+    course_id: string | null
+    raw_payload: Record<string, unknown> | null
+  }>,
+): Map<string, string[]> {
+  const map = new Map<string, string[]>()
+  const push = (key: string, id: string) => {
+    const arr = map.get(key) ?? []
+    arr.push(id)
+    map.set(key, arr)
+  }
+  for (const r of events) {
+    const rp = r.raw_payload ?? {}
+    const courseId = r.course_id
+    switch (r.source_type) {
+      case 'canvas_lecture': {
+        const itemId = rp.item_id ?? rp.content_id
+        if (itemId != null) push(`canvas_lecture_${itemId}`, r.id)
+        break
+      }
+      case 'canvas_syllabus':
+      case 'manual_syllabus':
+      case 'canvas_file_syllabus': {
+        if (courseId) push(`canvas_syllabus_${courseId.replace(/^canvas_course_/, '')}`, r.id)
+        break
+      }
+      case 'canvas_assignment':
+      case 'manual_assignment': {
+        if (courseId) {
+          const canonical = String(rp.rumbo_canonical_name ?? rp.name ?? '').trim()
+          const slug = canonical.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unnamed'
+          push(`assignment_${courseId}_${slug}`, r.id)
+        }
+        break
+      }
+      case 'canvas_file_project':
+      case 'canvas_file_rubric':
+      case 'canvas_file_study': {
+        const fileId = rp.id ?? rp.canvas_file_id
+        if (fileId != null) push(`canvas_file_${fileId}`, r.id)
+        break
+      }
+      case 'canvas_page': {
+        if (courseId) {
+          const pageSlug = String(rp.page_url ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+          if (pageSlug) push(`canvas_page_${courseId.replace(/^canvas_course_/, '')}_${pageSlug}`, r.id)
+        }
+        break
+      }
+      case 'canvas_course':
+      case 'manual_course':
+      case 'canvas_home':
+      case 'canvas_announcement': {
+        if (courseId) push(courseId, r.id)
+        break
+      }
+      case 'canvas_assignment_rubric': {
+        if (courseId) {
+          const canonical = String(rp.assignment_name ?? '').trim()
+          const slug = canonical.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unnamed'
+          push(`assignment_${courseId}_${slug}`, r.id)
+        }
+        break
+      }
+    }
+  }
+  return map
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -47,61 +132,50 @@ Deno.serve(async (req) => {
   const g = neo4j()
   const admin = createAdminClient()
 
-  // 1. All concepts for this user, ordered by mention count so the client
-  //    can trivially pick the top-N if it wants to cap.
+  // 1. Concepts from Neo4j.
   const concepts = (await g.run<ConceptRow>(
     `MATCH (c:Concept {user_id: $userId})
      RETURN c.id AS id,
             c.name AS name,
-            c.normalized_name AS normalized_name,
+            coalesce(c.normalized_name, c.name) AS normalized_name,
             coalesce(c.mention_count, 1) AS mention_count
      ORDER BY mention_count DESC`,
     { userId },
   )) as ConceptRow[]
 
-  // Backfill maps Postgres graph_nodes.id -> Neo4j Concept id via the
-  // `pg_concept_<uuid16>` prefix (see neo4j-backfill). We need the reverse
-  // lookup to join Neo4j Concepts against Postgres node_mentions.
-  const neoToPg = new Map<string, string>()
+  // 2. COVERS edges — source node → concept.
+  const covers = (await g.run<CoversRow>(
+    `MATCH (source)-[:COVERS]->(c:Concept {user_id: $userId})
+     WHERE source.user_id = $userId
+     RETURN c.id AS concept_id, source.id AS source_id, labels(source)[0] AS source_label`,
+    { userId },
+  )) as CoversRow[]
 
-  // Pull the alive graph_nodes rows for this user; we only need the ids and
-  // build the same short form the backfill uses.
-  const { data: pgNodeRows, error: pgErr } = await admin
-    .from('graph_nodes')
-    .select('id, name, entity_type')
+  // 3. Pull normalized_events for source-id → record-uuid mapping.
+  const { data: events, error: evErr } = await admin
+    .from('normalized_events')
+    .select('id, source_type, external_id, course_id, raw_payload')
     .eq('user_id', userId)
-    .in('entity_type', ['concept', 'topic'])
-    .is('superseded_at', null)
-  if (pgErr) return jsonResponse({ error: 'graph_nodes read failed', detail: pgErr.message }, 500)
-  const pgNodeIdSet = new Set<string>()
-  for (const row of pgNodeRows ?? []) {
-    const shortId = `pg_concept_${(row.id as string).replace(/-/g, '').slice(0, 16)}`
-    neoToPg.set(shortId, row.id as string)
-    pgNodeIdSet.add(row.id as string)
-  }
+    .eq('classification', 'academic')
+    .is('cancelled_at', null)
+  if (evErr) return jsonResponse({ error: 'events read failed', detail: evErr.message }, 500)
 
-  // 2. Mentions from Postgres (moves to Neo4j in Phase 6).
-  const { data: mentionsRaw, error: mErr } = await admin
-    .from('node_mentions')
-    .select('node_id, source_record_id')
-    .eq('user_id', userId)
-  if (mErr) return jsonResponse({ error: 'node_mentions read failed', detail: mErr.message }, 500)
+  const sourceMap = buildSourceMap((events ?? []) as Array<{
+    id: string
+    source_type: string
+    external_id: string
+    course_id: string | null
+    raw_payload: Record<string, unknown> | null
+  }>)
 
-  // Filter to mentions of alive nodes, then project Postgres node_id -> Neo4j
-  // concept id so the client sees a single id-space.
-  interface Mention {
-    concept_id: string   // Neo4j id
-    source_record_id: string
-  }
-  const mentions: Mention[] = []
-  // Build reverse: pg uuid -> neoId
-  const pgToNeo = new Map<string, string>()
-  for (const [neoId, pgId] of neoToPg) pgToNeo.set(pgId, neoId)
-
-  for (const m of (mentionsRaw ?? []) as Array<{ node_id: string; source_record_id: string }>) {
-    const neoId = pgToNeo.get(m.node_id)
-    if (!neoId) continue // node was skipped (course_reference / deadline) or superseded
-    mentions.push({ concept_id: neoId, source_record_id: m.source_record_id })
+  // 4. Expand each COVERS edge into per-record mentions.
+  const mentions: Array<{ concept_id: string; source_record_id: string }> = []
+  for (const c of covers) {
+    const recordIds = sourceMap.get(c.source_id)
+    if (!recordIds || recordIds.length === 0) continue
+    for (const rid of recordIds) {
+      mentions.push({ concept_id: c.concept_id, source_record_id: rid })
+    }
   }
 
   return jsonResponse({
@@ -109,6 +183,7 @@ Deno.serve(async (req) => {
     mentions,
     counts: {
       concepts: concepts.length,
+      covers_edges: covers.length,
       mentions: mentions.length,
     },
   })
