@@ -493,10 +493,27 @@ function stepSim(nodes: Positioned[], edges: BrainEdge[], nodeById: Map<string, 
     if (!b.fixed) { b.vx -= nx * strength; b.vy -= ny * strength }
   }
 
+  // Clamp velocities AFTER spring loop too — springs contribute unclamped
+  // deltas from every incident edge, so a highly-connected node can pile up
+  // hundreds of pixels of velocity and fly to infinity in one frame.
   for (const p of nodes) {
     if (p.fixed) continue
+    if (!Number.isFinite(p.vx)) p.vx = 0
+    if (!Number.isFinite(p.vy)) p.vy = 0
+    if (p.vx > MAX_VELOCITY) p.vx = MAX_VELOCITY
+    else if (p.vx < -MAX_VELOCITY) p.vx = -MAX_VELOCITY
+    if (p.vy > MAX_VELOCITY) p.vy = MAX_VELOCITY
+    else if (p.vy < -MAX_VELOCITY) p.vy = -MAX_VELOCITY
     p.x += p.vx
     p.y += p.vy
+    // Also guard positions — clamp to reasonable bounds so a bad frame can't
+    // put a node at (Infinity, Infinity) and lose it forever.
+    if (!Number.isFinite(p.x)) p.x = 0
+    if (!Number.isFinite(p.y)) p.y = 0
+    if (p.x > 5000) p.x = 5000
+    else if (p.x < -5000) p.x = -5000
+    if (p.y > 5000) p.y = 5000
+    else if (p.y < -5000) p.y = -5000
   }
 }
 
