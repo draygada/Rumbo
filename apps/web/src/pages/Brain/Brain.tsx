@@ -99,15 +99,18 @@ const SOURCE_AUTHORITY: Record<string, number> = {
 
 const FILTER_TYPES: NodeType[] = ['assignment', 'file', 'syllabus', 'course', 'event', 'lecture', 'home', 'page', 'announcement']
 
-// Force simulation constants
-const REPULSION = 4500
-const SPRING = 0.02
-const SPRING_LENGTH = 90
-const DAMPING = 0.9
-const CENTER = 0.002
+// Force simulation constants — tuned for ~50-400 nodes with dense edge sets.
+// Center pull scales up so hundreds of nodes don't drift off-screen; repulsion
+// falls off with distance so far-apart clusters stop pushing each other away.
+const REPULSION = 2200
+const SPRING = 0.025
+const SPRING_LENGTH = 80
+const DAMPING = 0.86
+const CENTER = 0.015          // was 0.002 — hundreds of nodes need real gravity
 const MIN_DIST_SQ = 0.5
-const MAX_VELOCITY = 15
-const INITIAL_WARM_STEPS = 40
+const REPULSION_MAX_DIST_SQ = 90000  // beyond ~300px, ignore repulsion (perf + stability)
+const MAX_VELOCITY = 12
+const INITIAL_WARM_STEPS = 60
 // Course cohesion pulls same-course nodes together, but too strong and it
 // swamps cross-class concept bridges. 0.005 keeps clusters visible without
 // squeezing every node onto its centroid.
@@ -447,6 +450,7 @@ function stepSim(nodes: Positioned[], edges: BrainEdge[], nodeById: Map<string, 
       const dx = a.x - b.x, dy = a.y - b.y
       const distSq = dx * dx + dy * dy
       if (distSq < MIN_DIST_SQ) continue
+      if (distSq > REPULSION_MAX_DIST_SQ) continue  // far-apart nodes stop pushing
       const force = REPULSION / distSq
       const dist = Math.sqrt(distSq)
       fx += (dx / dist) * force
