@@ -16,7 +16,7 @@ import styles from './Brain.module.css'
 // Types
 // -----------------------------------------------------------------------------
 
-type NodeType = 'assignment' | 'file' | 'syllabus' | 'course' | 'event'
+type NodeType = 'assignment' | 'file' | 'syllabus' | 'course' | 'event' | 'lecture' | 'home' | 'page' | 'announcement'
 
 interface BrainNode {
   id: string                       // bundle key
@@ -53,38 +53,51 @@ interface Positioned extends BrainNode {
 // -----------------------------------------------------------------------------
 
 const TYPE_COLOR: Record<NodeType, string> = {
-  assignment: '#b18db1',   // plum
-  file:       '#c9a34e',   // gold
-  syllabus:   '#7fb7bd',   // teal
-  course:     '#7791c2',   // blue (hubs)
-  event:      '#c88a6a',   // burnt
+  assignment:   '#b18db1',   // plum
+  file:         '#c9a34e',   // gold
+  syllabus:     '#7fb7bd',   // teal
+  course:       '#7791c2',   // blue (hubs)
+  event:        '#c88a6a',   // burnt
+  lecture:      '#6ba76b',   // green
+  home:         '#c66d90',   // rose
+  page:         '#98b16b',   // olive
+  announcement: '#d68a3f',   // amber
 }
 
 const TYPE_LABEL: Record<NodeType, string> = {
-  assignment: 'Assignment',
-  file:       'File',
-  syllabus:   'Syllabus',
-  course:     'Course',
-  event:      'Event',
+  assignment:   'Assignment',
+  file:         'File',
+  syllabus:     'Syllabus',
+  course:       'Course',
+  event:        'Event',
+  lecture:      'Lecture',
+  home:         'Home Page',
+  page:         'Page',
+  announcement: 'Announcement',
 }
 
-// Source authority for tier-styling. Mirrors brain-extraction.ts but expressed
-// per node type / per source_type since we're skipping the graph_nodes table.
+// Source authority for tier-styling. Mirrors brain-extraction-v2.ts
+// SOURCE_AUTHORITY exactly.
 const SOURCE_AUTHORITY: Record<string, number> = {
-  canvas_course:         0.90,
-  manual_course:         0.90,
-  canvas_syllabus:       1.00,
-  manual_syllabus:       1.00,
-  canvas_file_syllabus:  1.00,
-  canvas_file_rubric:    0.85,
-  canvas_file_project:   0.90,
-  canvas_file_study:     0.80,
-  canvas_assignment:     0.75,
-  manual_assignment:     0.75,
-  google_calendar:       0.70,
+  canvas_course:             0.90,
+  manual_course:             0.90,
+  canvas_syllabus:           1.00,
+  manual_syllabus:           1.00,
+  canvas_file_syllabus:      1.00,
+  canvas_file_rubric:        0.85,
+  canvas_file_project:       0.90,
+  canvas_file_study:         0.80,
+  canvas_assignment:         0.75,
+  manual_assignment:         0.75,
+  canvas_assignment_rubric:  0.90,
+  canvas_lecture:            0.80,
+  canvas_home:               0.95,
+  canvas_announcement:       0.75,
+  canvas_page:               0.80,
+  google_calendar:           0.70,
 }
 
-const FILTER_TYPES: NodeType[] = ['assignment', 'file', 'syllabus', 'course', 'event']
+const FILTER_TYPES: NodeType[] = ['assignment', 'file', 'syllabus', 'course', 'event', 'lecture', 'home', 'page', 'announcement']
 
 // Force simulation constants
 const REPULSION = 4500
@@ -141,9 +154,15 @@ const SHARED_TOKEN_MIN = 1
 
 function mapSourceTypeToNodeType(sourceType: string): NodeType | null {
   if (sourceType === 'canvas_assignment' || sourceType === 'manual_assignment') return 'assignment'
+  if (sourceType === 'canvas_assignment_rubric') return 'assignment'   // rubric attaches to the assignment bundle
+  if (sourceType === 'canvas_file_syllabus') return 'syllabus'
   if (sourceType.startsWith('canvas_file_')) return 'file'
+  if (sourceType === 'canvas_page') return 'page'
   if (sourceType === 'canvas_syllabus' || sourceType === 'manual_syllabus') return 'syllabus'
   if (sourceType === 'canvas_course' || sourceType === 'manual_course') return 'course'
+  if (sourceType === 'canvas_lecture') return 'lecture'
+  if (sourceType === 'canvas_home') return 'home'
+  if (sourceType === 'canvas_announcement') return 'announcement'
   if (sourceType === 'google_calendar') return 'event'
   return null
 }
@@ -238,13 +257,14 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
       .eq('classification', 'academic')
       .is('cancelled_at', null)
       .in('source_type', [
-        'canvas_assignment', 'manual_assignment',
+        'canvas_assignment', 'manual_assignment', 'canvas_assignment_rubric',
         'canvas_file_syllabus', 'canvas_file_rubric', 'canvas_file_project', 'canvas_file_study',
         'canvas_syllabus', 'manual_syllabus',
         'canvas_course', 'manual_course',
+        'canvas_lecture', 'canvas_home', 'canvas_page', 'canvas_announcement',
         'google_calendar',
       ])
-      .limit(2000),
+      .limit(3000),
     brainReadPromise,
     supabase
       .from('normalized_events')
