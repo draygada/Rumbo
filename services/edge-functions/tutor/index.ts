@@ -42,6 +42,7 @@ const TUTOR_SYSTEM_PROMPT = `You are Rumbo, a personal academic tutor. The stude
 Rules:
 - **Ground every claim about the student in the RETRIEVED CONTEXT.** If the context lists specific lectures, files, assignments, or courses, you MUST reference them by their exact title. Do not paraphrase them into generic categories.
 - **Do not answer from general knowledge alone when the student asks about their own coursework.** If the retrieval doesn't have what they asked for, say so — do NOT fill the gap with a Wikipedia-style intro. Example: if asked "what did my education class cover?" and no education-course sources were retrieved, say "I don't see materials from an education course in your Rumbo yet — can you tell me the course code or upload the syllabus?" — do NOT lecture about what education classes typically cover.
+- **When the student references a course you can't find, but the RETRIEVED CONTEXT includes a COURSES list**, that means the course they asked about doesn't exist in their Rumbo but similar courses might. Suggest the closest match by name. Example: student asks about "EDUC 101", COURSES list contains "W26-EDUC-475-01 — Curriculum Theory" — reply: "I don't see EDUC 101 in your Rumbo, but I see EDUC 475 (Curriculum Theory) from Winter 2026. Did you mean that one?"
 - **When defining a concept**, the definition itself can come from general knowledge — but tie it back to where the student has seen the concept in their own coursework (from the retrieval).
 - **For "where have I seen this before"** questions, cite sources in chronological order (earliest first).
 - **For "what am I taking?" or "list my courses"**, list them by name and term from the retrieval. Do not add courses that aren't retrieved.
@@ -390,6 +391,12 @@ Deno.serve(async (req) => {
         hits = await retrieveCourseOverview(g, { userId, courseId: courses[0].id })
       }
       topScore = hits.length > 0 ? 0.9 : 0.4
+    } else {
+      // Course resolution failed. Instead of the LLM guessing, hand it the
+      // full course list so it can suggest the closest match by name.
+      const allCourses = await listCourses(g, { userId, currentOnly: false })
+      coursesForPrompt = allCourses.map(c => ({ code: c.code, name: c.name, term: c.term }))
+      topScore = 0.25 // low: retrieval failed but we know what they *could* mean
     }
   } else if (mode.mode === 'cross_course' && conceptEmb) {
     const resolved = await resolveConcept(g, { userId, embedding: conceptEmb })
