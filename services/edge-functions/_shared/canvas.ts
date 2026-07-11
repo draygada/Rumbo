@@ -55,7 +55,7 @@ export interface CanvasFile {
   workflow_state?: string
 }
 
-export type CanvasFileCategory = 'syllabus' | 'rubric' | 'project' | 'study'
+export type CanvasFileCategory = 'syllabus' | 'rubric' | 'project' | 'study' | 'reading' | 'document'
 
 // Pull files that look like signal for the knowledge graph. Order matters —
 // a filename like "Final Project Rubric.pdf" should classify as `rubric`
@@ -77,15 +77,44 @@ const FILE_HEURISTICS: Array<{ category: CanvasFileCategory; pattern: RegExp }> 
     category: 'study',
     pattern: /\bmidterm\b|\bfinal[\s_-]*exam\b|\bstudy[\s_-]*guide\b|\bpractice[\s_-]*(exam|midterm|final|test|quiz)\b|\breview[\s_-]*(sheet|packet|session)\b|\breading[\s_-]*list\b|\bbibliography\b|\b(course[\s_-]*)?schedule\b/i,
   },
+  {
+    category: 'reading',
+    pattern: /\breading\b|\barticle\b|\bpaper\b|\bchapter\b|\bexcerpt\b|\bhandout\b|\bpacket\b/i,
+  },
 ]
+
+// Extensions we consider text-bearing document content (readings, lectures,
+// notes). If a file matches no heuristic pattern but has one of these
+// extensions AND passes size / state / mime checks, it gets ingested with
+// category 'document' — the general fallback for text-y content.
+const DOCUMENT_EXTENSIONS = /\.(pdf|docx?|pptx?|md|txt|rtf|odt|tex|html?)$/i
+
+// Extensions / mimes we always exclude — pure noise for the graph.
+const NOISE_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|bmp|tiff?|heic|mp4|mov|avi|mkv|webm|m4v|mp3|wav|ogg|flac|aac|zip|tar|gz|rar|7z|dmg|iso|exe|bin|apk|xcf|psd|ai|indd|dwg)$/i
+
+// Files bigger than this are almost always non-textual (videos, large image
+// packs, dataset dumps). Skip.
+const MAX_INGEST_BYTES = 40 * 1024 * 1024
 
 export function classifyCanvasFile(file: CanvasFile): CanvasFileCategory | null {
   const state = (file.workflow_state ?? '').toLowerCase()
   if (state === 'deleted' || state === 'locked' || file.locked || file.hidden) return null
-  const haystack = `${file.display_name ?? ''} ${file.filename ?? ''}`
+  const size = file.size ?? 0
+  if (size > MAX_INGEST_BYTES) return null
+  const mime = (file['content-type'] ?? '').toLowerCase()
+  // Skip anything that's obviously non-text by mime.
+  if (mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/')) return null
+  if (mime === 'application/zip' || mime === 'application/x-tar' || mime === 'application/x-rar-compressed') return null
+  const nameSource = `${file.display_name ?? ''} ${file.filename ?? ''}`.trim()
+  if (!nameSource) return null
+  if (NOISE_EXTENSIONS.test(nameSource)) return null
+  // Match highest-authority heuristic first.
   for (const { category, pattern } of FILE_HEURISTICS) {
-    if (pattern.test(haystack)) return category
+    if (pattern.test(nameSource)) return category
   }
+  // Fallback: general document if the extension looks textual.
+  if (DOCUMENT_EXTENSIONS.test(nameSource)) return 'document'
+  // No extension match AND no heuristic hit — skip (probably a binary blob).
   return null
 }
 
@@ -621,6 +650,8 @@ const FILE_CATEGORY_SOURCE_TYPE: Record<CanvasFileCategory, string> = {
   rubric:   'canvas_file_rubric',
   project:  'canvas_file_project',
   study:    'canvas_file_study',
+  reading:  'canvas_file_reading',
+  document: 'canvas_file_document',
 }
 
 // Metadata-only ingest for a signal-carrying Canvas file. Content extraction

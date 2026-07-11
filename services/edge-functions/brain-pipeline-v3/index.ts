@@ -58,6 +58,8 @@ const SOURCE_TYPE_PRIORITY: Record<string, number> = {
   canvas_file_project: 7,
   canvas_file_rubric: 7,
   canvas_file_study: 7,
+  canvas_file_reading: 7,
+  canvas_file_document: 6,
   canvas_page: 7,
   canvas_announcement: 6,
   canvas_course: 6,
@@ -185,7 +187,9 @@ function planStructuralNode(row: NormalizedEventRow): StructuralPlan | null {
     }
     case 'canvas_file_project':
     case 'canvas_file_rubric':
-    case 'canvas_file_study': {
+    case 'canvas_file_study':
+    case 'canvas_file_reading':
+    case 'canvas_file_document': {
       if (!courseId) return null
       const fileId = rp.id ?? rp.canvas_file_id
       if (fileId == null) return null

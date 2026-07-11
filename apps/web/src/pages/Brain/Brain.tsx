@@ -87,6 +87,8 @@ const SOURCE_AUTHORITY: Record<string, number> = {
   canvas_file_rubric:        0.85,
   canvas_file_project:       0.90,
   canvas_file_study:         0.80,
+  canvas_file_reading:       0.85,
+  canvas_file_document:      0.75,
   canvas_assignment:         0.75,
   manual_assignment:         0.75,
   canvas_assignment_rubric:  0.90,
@@ -280,6 +282,7 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
       .in('source_type', [
         'canvas_assignment', 'manual_assignment', 'canvas_assignment_rubric',
         'canvas_file_syllabus', 'canvas_file_rubric', 'canvas_file_project', 'canvas_file_study',
+        'canvas_file_reading', 'canvas_file_document',
         'canvas_syllabus', 'manual_syllabus',
         'canvas_course', 'manual_course',
         'canvas_lecture', 'canvas_home', 'canvas_page', 'canvas_announcement',

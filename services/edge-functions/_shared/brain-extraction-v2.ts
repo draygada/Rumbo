@@ -22,6 +22,8 @@ export const SOURCE_AUTHORITY: Record<string, number> = {
   canvas_file_rubric:        0.85,
   canvas_file_project:       0.90,
   canvas_file_study:         0.80,
+  canvas_file_reading:       0.85,   // author-published readings — high signal
+  canvas_file_document:      0.75,   // general course-attached documents
   canvas_assignment:         0.75,
   manual_assignment:         0.75,
   canvas_assignment_rubric:  0.90,  // instructor-authored, defines assessment
@@ -63,6 +65,8 @@ const SOURCE_TYPE_INSTRUCTION: Record<string, string> = {
   canvas_file_project:       `extract concepts this project applies`,
   canvas_file_rubric:        `extract concepts this rubric assesses`,
   canvas_file_study:         `extract concepts this study material covers`,
+  canvas_file_reading:       `extract the substantive concepts this reading discusses — the topics a professor would say 'this article is about'`,
+  canvas_file_document:      `extract concepts this course document covers`,
   canvas_assignment:         `extract concepts this assignment tests`,
   canvas_assignment_rubric:  `extract the specific grading criteria concepts this rubric assesses (e.g. "code style", "algorithmic correctness", "clarity of writing"). Skip generic ones like "meets requirements".`,
   manual_assignment:         `extract concepts this assignment tests`,
