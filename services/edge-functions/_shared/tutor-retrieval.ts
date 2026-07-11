@@ -245,19 +245,21 @@ export async function listCourses(
 }
 
 // Retrieval by course only (no concept filter) — for "tell me about my X class".
+// Every CONTAINS child is returned regardless of whether extraction has
+// produced concepts yet. That way home pages / assignments with empty concept
+// sets still surface as sources when asked about the course.
 export async function retrieveCourseOverview(
   g: Neo4jClient,
   args: { userId: string; courseId: string; limit?: number },
 ): Promise<RetrievalHit[]> {
   const limit = args.limit ?? 15
   return (await g.run<RetrievalHit>(
-    `MATCH (course:Course {id: $courseId, user_id: $userId})
-     OPTIONAL MATCH (course)-[:CONTAINS]->(source)-[cov:COVERS]->(concept:Concept)
+    `MATCH (course:Course {id: $courseId, user_id: $userId})-[:CONTAINS]->(source)
+     OPTIONAL MATCH (source)-[cov:COVERS]->(concept:Concept)
      WITH source, cov, concept, course
-     WHERE source IS NOT NULL
      RETURN source.id AS source_id,
             labels(source)[0] AS source_label,
-            coalesce(source.title, source.name, source.display_name) AS source_title,
+            coalesce(source.title, source.name, source.display_name, source.body_text) AS source_title,
             coalesce(source.url, source.html_url) AS source_url,
             course.id AS course_id,
             course.code AS course_code,
@@ -267,9 +269,9 @@ export async function retrieveCourseOverview(
             coalesce(concept.id, '') AS concept_id,
             null AS slide_number,
             coalesce(cov.is_primary, false) AS is_primary,
-            coalesce(cov.weight, 0.5) AS weight,
+            coalesce(cov.weight, 0.3) AS weight,
             concept.first_seen_at AS first_seen_at
-     ORDER BY cov.is_primary DESC, cov.weight DESC
+     ORDER BY cov.is_primary DESC NULLS LAST, cov.weight DESC NULLS LAST
      LIMIT $limit`,
     { userId: args.userId, courseId: args.courseId, limit },
   )) as RetrievalHit[]
