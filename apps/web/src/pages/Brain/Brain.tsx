@@ -130,7 +130,14 @@ const MIN_NODE_SEPARATION_SQ = MIN_NODE_SEPARATION * MIN_NODE_SEPARATION
 const COURSE_COHESION = 0.02   // was 0.005 — tighter clusters, more inter-cluster space
 // Cross-class concept bridges get a bigger spring so they visibly draw the
 // two clusters together instead of being dragged back into their own courses.
-const CROSS_CLASS_SPRING_BOOST = 2.2
+// Cross-class bridges pull WEAKER (not stronger) — the bridge exists to show
+// the connection, but shouldn't yank two whole clusters into a central knot.
+// Was 2.2 (stronger pull); reversed so cross-class edges are looser than
+// intra-cluster edges and clusters stay separated with visible bridges.
+const CROSS_CLASS_SPRING_BOOST = 0.3
+// Cross-class edges also get a longer natural length so their equilibrium is
+// further out — bridged nodes rest apart, not stacked.
+const CROSS_CLASS_LENGTH_MULT = 3.5
 // A token appearing in > this fraction of nodes is generic and won't carry
 // signal ("assignment", "reading", "week"). Ignored entirely.
 const GENERIC_CONCEPT_MAX_FREQ = 0.20   // tighter — was 0.35, too permissive at 400 nodes
@@ -171,7 +178,7 @@ function conceptTokens(raw: string): Set<string> {
 const SHARED_TOKEN_MIN = 2
 // Cap edges per node to the top-N strongest to prevent hub nodes (courses with
 // dozens of assignments) from creating a solid wall of pink lines.
-const MAX_EDGES_PER_NODE = 10
+const MAX_EDGES_PER_NODE = 6
 
 function mapSourceTypeToNodeType(sourceType: string): NodeType | null {
   if (sourceType === 'canvas_assignment' || sourceType === 'manual_assignment') return 'assignment'
@@ -553,13 +560,19 @@ function stepSim(nodes: Positioned[], edges: BrainEdge[], nodeById: Map<string, 
     // concept bridges get an extra multiplier so they actually visually
     // bridge clusters instead of getting pulled back by course cohesion.
     let mult: number
+    let restLength = SPRING_LENGTH
     if (e.sharedConcepts.length > 0) {
       const base = Math.min(2, 1 + e.sharedConcepts.length * 0.2)
-      mult = e.isCrossClass ? base * CROSS_CLASS_SPRING_BOOST : base
+      if (e.isCrossClass) {
+        mult = base * CROSS_CLASS_SPRING_BOOST         // weaker pull
+        restLength = SPRING_LENGTH * CROSS_CLASS_LENGTH_MULT // longer natural length
+      } else {
+        mult = base
+      }
     } else {
       mult = 0.4  // course containment
     }
-    const strength = (dist - SPRING_LENGTH) * SPRING * mult
+    const strength = (dist - restLength) * SPRING * mult
     const nx = dx / dist, ny = dy / dist
     if (!a.fixed) { a.vx += nx * strength; a.vy += ny * strength }
     if (!b.fixed) { b.vx -= nx * strength; b.vy -= ny * strength }
