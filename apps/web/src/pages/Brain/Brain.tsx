@@ -100,17 +100,19 @@ const SOURCE_AUTHORITY: Record<string, number> = {
 const FILTER_TYPES: NodeType[] = ['assignment', 'file', 'syllabus', 'course', 'event', 'lecture', 'home', 'page', 'announcement']
 
 // Force simulation constants — tuned for ~50-400 nodes with dense edge sets.
-// Center pull scales up so hundreds of nodes don't drift off-screen; repulsion
-// falls off with distance so far-apart clusters stop pushing each other away.
-const REPULSION = 2200
-const SPRING = 0.025
-const SPRING_LENGTH = 80
-const DAMPING = 0.86
-const CENTER = 0.015          // was 0.002 — hundreds of nodes need real gravity
+// Center pull is strong so hundreds of nodes stay on-screen; repulsion cuts
+// off at distance so far-apart clusters stop pushing each other into infinity.
+// Warm-start is 0 to avoid the "1000 iterations then explode" divergence that
+// happens when initial forces overshoot.
+const REPULSION = 1400
+const SPRING = 0.03
+const SPRING_LENGTH = 70
+const DAMPING = 0.82
+const CENTER = 0.02
 const MIN_DIST_SQ = 0.5
-const REPULSION_MAX_DIST_SQ = 90000  // beyond ~300px, ignore repulsion (perf + stability)
-const MAX_VELOCITY = 12
-const INITIAL_WARM_STEPS = 60
+const REPULSION_MAX_DIST_SQ = 62500   // ignore repulsion beyond ~250px
+const MAX_VELOCITY = 8
+const INITIAL_WARM_STEPS = 0          // let the raf loop settle live from spiral
 // Course cohesion pulls same-course nodes together, but too strong and it
 // swamps cross-class concept bridges. 0.005 keeps clusters visible without
 // squeezing every node onto its centroid.
