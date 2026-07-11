@@ -52,13 +52,20 @@ export interface DocHit {
 
 export async function fanOutDocSearch(
   g: Neo4jClient,
-  args: { userId: string; embedding: number[]; perLabelK?: number; minScore?: number },
+  args: {
+    userId: string
+    embedding: number[]
+    perLabelK?: number
+    minScore?: number
+    courseIdFilter?: string | null   // scope hits to a single course
+  },
 ): Promise<DocHit[]> {
   const k = args.perLabelK ?? 5
   const minScore = args.minScore ?? 0.5
+  // Fetch more per-label upfront when we intend to filter — otherwise a
+  // strict course filter drops most hits and we're left with 0-2 results.
+  const rawK = args.courseIdFilter ? Math.max(30, k * 6) : k
 
-  // Neo4j vector indexes are per-label; fan out with Promise.all so each
-  // label's query runs in parallel against Aura.
   const perLabelHits = await Promise.all(
     CONTENT_LABELS.map(async (label) => {
       const indexName = `${label.toLowerCase()}_body_embedding`
@@ -67,6 +74,7 @@ export async function fanOutDocSearch(
          YIELD node, score
          WHERE node.user_id = $userId AND score >= $minScore
          OPTIONAL MATCH (course:Course {user_id: $userId})-[:CONTAINS]->(node)
+         WHERE $courseIdFilter IS NULL OR course.id = $courseIdFilter
          RETURN node.id AS source_id,
                 labels(node)[0] AS source_label,
                 coalesce(node.title, node.name, node.display_name) AS source_title,
@@ -77,14 +85,21 @@ export async function fanOutDocSearch(
                 course.name AS course_name,
                 course.term AS course_term,
                 substring(coalesce(node.body_text, ''), 0, 1200) AS body_text
-         ORDER BY score DESC`,
-        { userId: args.userId, embedding: args.embedding, k, minScore },
+         ORDER BY score DESC
+         LIMIT $limit`,
+        {
+          userId: args.userId,
+          embedding: args.embedding,
+          k: rawK,
+          minScore,
+          courseIdFilter: args.courseIdFilter ?? null,
+          limit: k,
+        },
       ).catch(() => [] as DocHit[])
       return rows
     }),
   )
 
-  // Flatten + sort by score.
   const all = perLabelHits.flat()
   all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
   return all
@@ -107,16 +122,24 @@ export interface ChunkHit {
 
 export async function chunkFanOutSearch(
   g: Neo4jClient,
-  args: { userId: string; embedding: number[]; topK?: number; minScore?: number },
+  args: {
+    userId: string
+    embedding: number[]
+    topK?: number
+    minScore?: number
+    courseIdFilter?: string | null
+  },
 ): Promise<ChunkHit[]> {
   const k = args.topK ?? 5
   const minScore = args.minScore ?? 0.5
+  const rawK = args.courseIdFilter ? Math.max(30, k * 6) : k
   const rows = await g.run<ChunkHit>(
     `CALL db.index.vector.queryNodes('chunk_body_embedding', $k, $embedding)
      YIELD node, score
      WHERE node.user_id = $userId AND score >= $minScore
      OPTIONAL MATCH (parent {id: node.parent_id, user_id: $userId})
      OPTIONAL MATCH (course:Course {user_id: $userId})-[:CONTAINS]->(parent)
+     WHERE $courseIdFilter IS NULL OR course.id = $courseIdFilter
      RETURN node.id AS chunk_id,
             node.parent_id AS parent_id,
             node.parent_label AS parent_label,
@@ -127,8 +150,16 @@ export async function chunkFanOutSearch(
             course.id AS course_id,
             course.code AS course_code,
             course.name AS course_name
-     ORDER BY score DESC`,
-    { userId: args.userId, embedding: args.embedding, k, minScore },
+     ORDER BY score DESC
+     LIMIT $limit`,
+    {
+      userId: args.userId,
+      embedding: args.embedding,
+      k: rawK,
+      minScore,
+      courseIdFilter: args.courseIdFilter ?? null,
+      limit: k,
+    },
   ).catch(() => [] as ChunkHit[])
   return rows
 }

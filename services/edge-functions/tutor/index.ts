@@ -384,6 +384,7 @@ Deno.serve(async (req) => {
   let topScore: number | null = null
   let runnerUpScore: number | null = null
   let resolvedCourseCode: string | null = null
+  let resolvedCourseId: string | null = null
 
   if (mode.mode === 'list_courses') {
     const scope = mode.list_scope ?? 'current'
@@ -409,6 +410,7 @@ Deno.serve(async (req) => {
     }
     if (courses.length > 0) {
       resolvedCourseCode = courses[0].code
+      resolvedCourseId = courses[0].id
       // Concept-guided retrieval if we have a concept embedding, else a plain
       // overview of what's in that course.
       if (conceptEmb) {
@@ -446,9 +448,13 @@ Deno.serve(async (req) => {
   if (conceptEmb && mode.mode !== 'list_courses' && mode.mode !== 'small_talk') {
     const questionEmbeds = await geminiEmbedBatch([question])
     const questionEmb = questionEmbeds[0] ?? conceptEmb
+    // If we're in within_course mode and successfully resolved a course,
+    // scope the semantic fan-out to just that course. Prevents leaking hits
+    // from unrelated courses that happen to share terminology.
+    const courseIdFilter = mode.mode === 'within_course' ? resolvedCourseId : null
     const [docs, chunks] = await Promise.all([
-      fanOutDocSearch(g, { userId, embedding: questionEmb, perLabelK: 4, minScore: 0.55 }),
-      chunkFanOutSearch(g, { userId, embedding: questionEmb, topK: 5, minScore: 0.55 }),
+      fanOutDocSearch(g, { userId, embedding: questionEmb, perLabelK: 4, minScore: 0.55, courseIdFilter }),
+      chunkFanOutSearch(g, { userId, embedding: questionEmb, topK: 5, minScore: 0.55, courseIdFilter }),
     ])
     docHits = docs
     chunkHits = chunks
@@ -466,6 +472,7 @@ Deno.serve(async (req) => {
   const retrievalText = formatRetrievalForPrompt(hits, coursesForPrompt, docHits, chunkHits)
   const answer = await generateAnswer({ question, history, retrievalText, mode: mode.mode })
   void resolvedCourseCode // available for future prompt hints; unused for now
+  void resolvedCourseId
 
   // 5. Persist turns
   const now = new Date().toISOString()
