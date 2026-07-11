@@ -117,6 +117,16 @@ function planStructuralNode(row: NormalizedEventRow): StructuralPlan | null {
     case 'canvas_course':
     case 'manual_course': {
       if (!courseId) return null
+      // term_end is usually stored in raw_payload.term.end_at (Canvas nests it).
+      // Fall back to raw_payload.end_at, then null. Same for start_at.
+      const termObj = (rp.term ?? {}) as Record<string, unknown>
+      const termName = typeof termObj.name === 'string' ? termObj.name : null
+      const termEnd = typeof termObj.end_at === 'string'
+        ? termObj.end_at
+        : (typeof rp.end_at === 'string' ? rp.end_at : null)
+      const termStart = typeof termObj.start_at === 'string'
+        ? termObj.start_at
+        : (typeof rp.start_at === 'string' ? rp.start_at : null)
       return {
         label: 'Course',
         id: courseId,
@@ -125,6 +135,9 @@ function planStructuralNode(row: NormalizedEventRow): StructuralPlan | null {
           name: String(rp.name ?? row.normalized_text ?? ''),
           code: String(rp.course_code ?? ''),
           source: row.source_type === 'canvas_course' ? 'canvas' : 'manual',
+          term: termName,
+          term_end: termEnd,
+          term_start: termStart,
         },
       }
     }
