@@ -1,7 +1,9 @@
 // neo4j-graph-writer — MERGE helpers for the Fast-tier (Phase 6) pipeline.
 //
 // Node shapes & merge keys per graph-schema.md §4-§5. Vector-similarity concept
-// resolution uses the `concept_embedding` index at cosine >= 0.82.
+// resolution uses the `concept_embedding` index at cosine >= 0.88.
+// (Was 0.82 initially; over-merged badly in real data — 464 records
+// processed and stayed at 64 concepts. Bumped 2026-07-10.)
 
 import type { Neo4jClient } from './neo4j.ts'
 
@@ -76,7 +78,7 @@ export async function ensureConcept(
   const hits = await client.run<{ id: string }>(
     `CALL db.index.vector.queryNodes('concept_embedding', 5, $embedding)
      YIELD node, score
-     WHERE node.user_id = $userId AND score >= 0.82
+     WHERE node.user_id = $userId AND score >= 0.88
      RETURN node.id AS id ORDER BY score DESC LIMIT 1`,
     { embedding: args.embedding, userId: args.userId },
   ).catch(err => {
@@ -157,7 +159,7 @@ export async function upsertConceptAndLink(
   const cypher = `
     CALL db.index.vector.queryNodes('concept_embedding', 3, $embedding) YIELD node, score
     WITH node, score
-    WHERE node.user_id = $userId AND score >= 0.82
+    WHERE node.user_id = $userId AND score >= 0.88
     WITH collect({id: node.id, score: score}) AS hits
     WITH CASE WHEN size(hits) > 0 THEN hits[0].id ELSE $newId END AS conceptId,
          size(hits) > 0 AS merged
