@@ -477,7 +477,11 @@ Deno.serve(async (req) => {
     }
   }
 
-  const totalHitCount = hits.length + docHits.length + chunkHits.length
+  // For list_courses mode the "hits" are the courses themselves — treat them
+  // as retrieval hits for confidence scoring so the pill doesn't say "Low
+  // confidence" on a successful list of 20+ courses.
+  const totalHitCount = hits.length + docHits.length + chunkHits.length +
+    (mode.mode === 'list_courses' ? coursesForPrompt.length : 0)
   const confidence = computeConfidence({ topScore, runnerUpScore, hitCount: totalHitCount })
 
   // 4. LLM answer
