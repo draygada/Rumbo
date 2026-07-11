@@ -104,14 +104,14 @@ const FILTER_TYPES: NodeType[] = ['assignment', 'file', 'syllabus', 'course', 'e
 // off at distance so far-apart clusters stop pushing each other into infinity.
 // Warm-start is 0 to avoid the "1000 iterations then explode" divergence that
 // happens when initial forces overshoot.
-const REPULSION = 1400
-const SPRING = 0.03
-const SPRING_LENGTH = 70
-const DAMPING = 0.82
-const CENTER = 0.02
+const REPULSION = 3400
+const SPRING = 0.018
+const SPRING_LENGTH = 180             // longer edges = more breathing room
+const DAMPING = 0.85
+const CENTER = 0.005                  // weaker so clusters can breathe outward
 const MIN_DIST_SQ = 0.5
-const REPULSION_MAX_DIST_SQ = 62500   // ignore repulsion beyond ~250px
-const MAX_VELOCITY = 8
+const REPULSION_MAX_DIST_SQ = 250000  // ~500px reach
+const MAX_VELOCITY = 10
 const INITIAL_WARM_STEPS = 0          // let the raf loop settle live from spiral
 // Course cohesion pulls same-course nodes together, but too strong and it
 // swamps cross-class concept bridges. 0.005 keeps clusters visible without
@@ -122,7 +122,7 @@ const COURSE_COHESION = 0.005
 const CROSS_CLASS_SPRING_BOOST = 2.2
 // A token appearing in > this fraction of nodes is generic and won't carry
 // signal ("assignment", "reading", "week"). Ignored entirely.
-const GENERIC_CONCEPT_MAX_FREQ = 0.35
+const GENERIC_CONCEPT_MAX_FREQ = 0.20   // tighter — was 0.35, too permissive at 400 nodes
 
 // -----------------------------------------------------------------------------
 // Data helpers
@@ -155,7 +155,12 @@ function conceptTokens(raw: string): Set<string> {
     })
   return new Set(words)
 }
-const SHARED_TOKEN_MIN = 1
+// Was 1 — created 7000+ edges on a 400-node graph (hairball). Bumped so an
+// edge requires substantive semantic overlap, not one incidental shared word.
+const SHARED_TOKEN_MIN = 2
+// Cap edges per node to the top-N strongest to prevent hub nodes (courses with
+// dozens of assignments) from creating a solid wall of pink lines.
+const MAX_EDGES_PER_NODE = 10
 
 function mapSourceTypeToNodeType(sourceType: string): NodeType | null {
   if (sourceType === 'canvas_assignment' || sourceType === 'manual_assignment') return 'assignment'
@@ -404,9 +409,11 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
   }
 
   // Shared-TOKEN edges — the pipeline's resolution didn't merge similar
-  // concepts across courses (0.92 threshold too tight for Gemini embeddings),
-  // so we match on shared meaningful words instead. This is the difference
-  // between an isolated per-course cluster view and a real network.
+  // concepts across courses, so we match on shared meaningful words instead.
+  // Two-pass: (1) collect all candidate edges with a strength score; (2) keep
+  // only the top-N per node so hub nodes don't create a wall of pink lines.
+  interface Candidate { src: string; tgt: string; shared: string[]; isCrossClass: boolean; strength: number }
+  const candidates: Candidate[] = []
   for (let i = 0; i < nodes.length; i += 1) {
     const a = nodes[i]
     if (a.tokens.size < SHARED_TOKEN_MIN) continue
@@ -415,11 +422,23 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
       if (b.tokens.size < SHARED_TOKEN_MIN) continue
       const shared: string[] = []
       for (const t of b.tokens) if (a.tokens.has(t)) shared.push(t)
-      if (shared.length >= SHARED_TOKEN_MIN) {
-        const isCrossClass = Boolean(a.courseId && b.courseId && a.courseId !== b.courseId)
-        edges.push({ source: a.id, target: b.id, sharedConcepts: shared, isCrossClass })
-      }
+      if (shared.length < SHARED_TOKEN_MIN) continue
+      const isCrossClass = Boolean(a.courseId && b.courseId && a.courseId !== b.courseId)
+      // Cross-class shared concepts weight more heavily (the real bridges).
+      const strength = shared.length + (isCrossClass ? 1.5 : 0)
+      candidates.push({ src: a.id, tgt: b.id, shared, isCrossClass, strength })
     }
+  }
+  // Sort strongest first, then greedily keep edges until each node hits its cap.
+  candidates.sort((x, y) => y.strength - x.strength)
+  const perNodeCount = new Map<string, number>()
+  for (const c of candidates) {
+    const srcCount = perNodeCount.get(c.src) ?? 0
+    const tgtCount = perNodeCount.get(c.tgt) ?? 0
+    if (srcCount >= MAX_EDGES_PER_NODE || tgtCount >= MAX_EDGES_PER_NODE) continue
+    perNodeCount.set(c.src, srcCount + 1)
+    perNodeCount.set(c.tgt, tgtCount + 1)
+    edges.push({ source: c.src, target: c.tgt, sharedConcepts: c.shared, isCrossClass: c.isCrossClass })
   }
 
   return { nodes, edges }
