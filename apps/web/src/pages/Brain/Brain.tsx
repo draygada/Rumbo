@@ -122,7 +122,7 @@ const MIN_NODE_SEPARATION_SQ = MIN_NODE_SEPARATION * MIN_NODE_SEPARATION
 // Course cohesion pulls same-course nodes together, but too strong and it
 // swamps cross-class concept bridges. 0.005 keeps clusters visible without
 // squeezing every node onto its centroid.
-const COURSE_COHESION = 0.005
+const COURSE_COHESION = 0.02   // was 0.005 — tighter clusters, more inter-cluster space
 // Cross-class concept bridges get a bigger spring so they visibly draw the
 // two clusters together instead of being dragged back into their own courses.
 const CROSS_CLASS_SPRING_BOOST = 2.2
@@ -802,12 +802,12 @@ export default function Brain() {
       ctx.lineTo(x2, y2)
       if (isConcept && e.isCrossClass) {
         ctx.strokeStyle = accent
-        ctx.globalAlpha = highlight ? 1 : 0.95
-        ctx.lineWidth = Math.max(2.2, Math.min(5, 2 + e.sharedConcepts.length * 0.5)) / view.current.zoom
+        ctx.globalAlpha = highlight ? 1 : 0.7
+        ctx.lineWidth = Math.max(1.3, Math.min(3, 1 + e.sharedConcepts.length * 0.3)) / view.current.zoom
       } else if (isConcept) {
         ctx.strokeStyle = primary
-        ctx.globalAlpha = highlight ? 1 : 0.8
-        ctx.lineWidth = Math.max(1.6, Math.min(3.5, 1.4 + e.sharedConcepts.length * 0.4)) / view.current.zoom
+        ctx.globalAlpha = highlight ? 1 : 0.45
+        ctx.lineWidth = Math.max(0.7, Math.min(2, 0.6 + e.sharedConcepts.length * 0.2)) / view.current.zoom
       } else {
         ctx.strokeStyle = border
         ctx.globalAlpha = highlight ? 0.95 : 0.5
@@ -834,6 +834,32 @@ export default function Brain() {
         ctx.lineWidth = 2.5 / view.current.zoom
         ctx.strokeStyle = textColor
         ctx.stroke()
+      }
+    }
+
+    // Persistent labels near nodes — Obsidian-style. Only render when zoom is
+    // enough that labels are readable; skip for the smallest nodes at low zoom
+    // so we don't cover everything in overlapping text.
+    const zoomLevel = view.current.zoom
+    if (zoomLevel > 0.35) {
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillStyle = textColor
+      const fontPx = Math.max(9, 11 / zoomLevel)
+      ctx.font = `${fontPx}px system-ui, -apple-system, sans-serif`
+      for (const p of positioned.current) {
+        // Skip labels for the smallest, most-populous node types at low zoom
+        // — Obsidian only shows all labels when you're zoomed in enough.
+        if (zoomLevel < 0.6 && p.r < 7 && p.type !== 'course') continue
+        const name = p.name
+        if (!name) continue
+        // Truncate long names.
+        const label = name.length > 28 ? name.slice(0, 26) + '…' : name
+        // Small shadow so labels stay legible against edges.
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'
+        ctx.fillText(label, p.x + 1, p.y + p.r + 3)
+        ctx.fillStyle = textColor
+        ctx.fillText(label, p.x, p.y + p.r + 2)
       }
     }
   }
