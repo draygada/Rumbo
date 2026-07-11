@@ -113,6 +113,12 @@ const MIN_DIST_SQ = 0.5
 const REPULSION_MAX_DIST_SQ = 250000  // ~500px reach
 const MAX_VELOCITY = 10
 const INITIAL_WARM_STEPS = 0          // let the raf loop settle live from spiral
+
+// Minimum center-to-center separation between any two nodes (independent of
+// physics). Enforced as a positional resolve after each step — even if a spring
+// wants to pull two nodes on top of each other, we push them back to this gap.
+const MIN_NODE_SEPARATION = 22
+const MIN_NODE_SEPARATION_SQ = MIN_NODE_SEPARATION * MIN_NODE_SEPARATION
 // Course cohesion pulls same-course nodes together, but too strong and it
 // swamps cross-class concept bridges. 0.005 keeps clusters visible without
 // squeezing every node onto its centroid.
@@ -534,7 +540,39 @@ function stepSim(nodes: Positioned[], edges: BrainEdge[], nodeById: Map<string, 
     if (p.y > 5000) p.y = 5000
     else if (p.y < -5000) p.y = -5000
   }
+
+  // Minimum-separation resolve — after positions update, any pair closer than
+  // MIN_NODE_SEPARATION gets pushed apart directly. This is what actually
+  // prevents nodes from stacking, regardless of what the physics decided.
+  // O(n^2) but for n=400 that's 160k comparisons per frame at ~10x/sec — fine.
+  for (let i = 0; i < n; i += 1) {
+    const a = nodes[i]
+    if (a.fixed) continue
+    const aMin = a.r + MIN_NODE_SEPARATION
+    for (let j = i + 1; j < n; j += 1) {
+      const b = nodes[j]
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const minGap = aMin + b.r
+      const minGapSq = minGap * minGap
+      const distSq = dx * dx + dy * dy
+      if (distSq >= minGapSq) continue
+      if (distSq < 0.0001) {
+        // Coincident — shove randomly a tiny bit so the next frame can resolve.
+        a.x -= 0.5
+        b.x += 0.5
+        continue
+      }
+      const dist = Math.sqrt(distSq)
+      const overlap = (minGap - dist) * 0.5
+      const ux = dx / dist
+      const uy = dy / dist
+      if (!b.fixed) { b.x += ux * overlap; b.y += uy * overlap }
+      if (!a.fixed) { a.x -= ux * overlap; a.y -= uy * overlap }
+    }
+  }
 }
+void MIN_NODE_SEPARATION_SQ // reserved for a future spatial-index optimization
 
 function radiusFor(node: BrainNode): number {
   const base = node.type === 'course' ? 10 : node.type === 'syllabus' ? 8 : node.type === 'file' ? 6 : 5
