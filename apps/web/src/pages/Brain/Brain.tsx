@@ -447,7 +447,28 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
     edges.push({ source: c.src, target: c.tgt, sharedConcepts: c.shared, isCrossClass: c.isCrossClass })
   }
 
-  return { nodes, edges }
+  // Prune orphan generic-name nodes — Course rows with no code AND no name
+  // fall through to displayName="Course". If such a node also has zero edges
+  // (no course-containment members, no shared-token bridges), it's noise —
+  // usually an archived or bad-payload course. Drop it.
+  const edgeCountById = new Map<string, number>()
+  for (const e of edges) {
+    edgeCountById.set(e.source, (edgeCountById.get(e.source) ?? 0) + 1)
+    edgeCountById.set(e.target, (edgeCountById.get(e.target) ?? 0) + 1)
+  }
+  const keptIds = new Set<string>()
+  for (const n of nodes) {
+    const trimmed = n.name.trim()
+    const isGenericCourse = n.type === 'course' && (
+      !trimmed || /^(course|untitled|null|-)$/i.test(trimmed)
+    )
+    const isolated = (edgeCountById.get(n.id) ?? 0) === 0
+    if (isGenericCourse && isolated) continue
+    keptIds.add(n.id)
+  }
+  const prunedNodes = nodes.filter(n => keptIds.has(n.id))
+  const prunedEdges = edges.filter(e => keptIds.has(e.source) && keptIds.has(e.target))
+  return { nodes: prunedNodes, edges: prunedEdges }
 }
 
 // -----------------------------------------------------------------------------
@@ -599,6 +620,8 @@ export default function Brain() {
   const positioned = useRef<Positioned[]>([])
   const nodeById = useRef<Map<string, Positioned>>(new Map())
   const rafRef = useRef<number | null>(null)
+  const freezeControls = useRef<{ unfreeze: () => void } | null>(null)
+  const unfreezeSim = useCallback(() => { freezeControls.current?.unfreeze() }, [])
   const dprRef = useRef<number>(1)
 
   const view = useRef({ x: 0, y: 0, zoom: 1 })
@@ -663,7 +686,9 @@ export default function Brain() {
       }
     }
     filteredEdges.current = filteredData.edges
-  }, [filteredData])
+    // Data changed — resume physics until it settles again.
+    unfreezeSim()
+  }, [filteredData, unfreezeSim])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -688,11 +713,48 @@ export default function Brain() {
 
   useEffect(() => {
     let alive = true
+    // Auto-freeze: after N consecutive frames where total kinetic energy is
+    // below a threshold, stop stepping physics. The draw loop keeps running
+    // so redraws (hover, pan, zoom) still work. Physics resumes on any event
+    // that unfreezes (drag, filter change, data reload — see unfreezeSim).
+    let frozen = false
+    let lowEnergyFrames = 0
+    const LOW_ENERGY_THRESHOLD = 0.5   // avg speed² per node
+    const LOW_ENERGY_FRAMES_NEEDED = 45 // ~1s of stillness at 60fps
+    freezeControls.current = {
+      unfreeze: () => {
+        frozen = false
+        lowEnergyFrames = 0
+      },
+    }
     const draw = () => {
       if (!alive) return
       const canvas = canvasRef.current
       if (canvas) {
-        stepSim(positioned.current, filteredEdges.current, nodeById.current)
+        if (!frozen) {
+          stepSim(positioned.current, filteredEdges.current, nodeById.current)
+          // Measure kinetic energy — if below threshold N frames in a row, freeze.
+          let sumSpeedSq = 0
+          const n = positioned.current.length
+          for (let i = 0; i < n; i += 1) {
+            const p = positioned.current[i]
+            sumSpeedSq += p.vx * p.vx + p.vy * p.vy
+          }
+          const avgSpeedSq = n > 0 ? sumSpeedSq / n : 0
+          if (avgSpeedSq < LOW_ENERGY_THRESHOLD) {
+            lowEnergyFrames += 1
+            if (lowEnergyFrames >= LOW_ENERGY_FRAMES_NEEDED) {
+              frozen = true
+              // Zero out residual velocity so the freeze holds perfectly still.
+              for (let i = 0; i < n; i += 1) {
+                positioned.current[i].vx = 0
+                positioned.current[i].vy = 0
+              }
+            }
+          } else {
+            lowEnergyFrames = 0
+          }
+        }
         const ctx = canvas.getContext('2d')
         if (ctx) drawFrame(ctx, canvas)
       }
@@ -825,6 +887,7 @@ export default function Brain() {
       p.fixed = true
       const world = screenToWorld(e.clientX, e.clientY)
       dragState.current = { nodeId: p.id, offsetX: world.x - p.x, offsetY: world.y - p.y }
+      unfreezeSim()
       return
     }
     panState.current = { startX: e.clientX, startY: e.clientY, origX: view.current.x, origY: view.current.y }
