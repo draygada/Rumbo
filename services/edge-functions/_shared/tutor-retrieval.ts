@@ -47,6 +47,7 @@ export interface DocHit {
   course_code: string | null
   course_name: string | null
   course_term: string | null
+  body_text: string | null
 }
 
 export async function fanOutDocSearch(
@@ -68,13 +69,14 @@ export async function fanOutDocSearch(
          OPTIONAL MATCH (course:Course {user_id: $userId})-[:CONTAINS]->(node)
          RETURN node.id AS source_id,
                 labels(node)[0] AS source_label,
-                coalesce(node.title, node.name, node.display_name, node.body_text) AS source_title,
+                coalesce(node.title, node.name, node.display_name) AS source_title,
                 coalesce(node.url, node.html_url) AS source_url,
                 score,
                 course.id AS course_id,
                 course.code AS course_code,
                 course.name AS course_name,
-                course.term AS course_term
+                course.term AS course_term,
+                substring(coalesce(node.body_text, ''), 0, 1200) AS body_text
          ORDER BY score DESC`,
         { userId: args.userId, embedding: args.embedding, k, minScore },
       ).catch(() => [] as DocHit[])

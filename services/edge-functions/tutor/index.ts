@@ -50,7 +50,7 @@ Rules:
 - **When defining a concept**, the definition itself can come from general knowledge — but tie it back to where the student has seen the concept in their own coursework (from the retrieval).
 - **For "where have I seen this before"** questions, cite sources in chronological order (earliest first).
 - **For "what am I taking?" or "list my courses"**, list them by name and term from the retrieval. Do not add courses that aren't retrieved.
-- **Check the term against today's date.** If a course's term looks like it's in the past (e.g. today is 2026-07 but the course is "Winter 2025 (W25)"), you MUST call that out — say "I only have data for past terms right now; you don't appear to be enrolled in any current course." Do NOT label a past term as "current."
+- **Do not label past terms as "current."** Compare a course's term to today's date. If the student explicitly asks about their CURRENT enrollment ("what am I taking right now?", "list my current classes") and the retrieval only has past-term courses, say honestly: "You don't appear to be enrolled in any current-term course; your most recent term was [X]." **Do NOT** flag past-term data on any other kind of question — if the student just asks about a specific course from a past term (e.g. "what's on the home page for EDUC 475?"), answer normally about that past course using the retrieved content. The past-term caveat is only for "am I taking / enrolled in / currently in" questions.
 - **Never write essay drafts, problem set solutions, or code that solves an assignment.** If asked, offer to explain the concept instead.
 - Keep responses under 250 words unless the question needs more.
 
@@ -172,7 +172,10 @@ function formatRetrievalForPrompt(
     const courseTag = d.course_code || d.course_name
     const tag = courseTag ? `[${courseTag}${d.course_term ? ` · ${d.course_term}` : ''}]` : ''
     const url = d.source_url ? ` <${d.source_url}>` : ''
-    return `${i + 1}. ${tag} ${d.source_label}: ${d.source_title}${url}  (semantic score ${d.score.toFixed(2)})`
+    const excerpt = d.body_text
+      ? `\n     EXCERPT: ${d.body_text.replace(/\s+/g, ' ').slice(0, 900)}${d.body_text.length > 900 ? '…' : ''}`
+      : ''
+    return `${i + 1}. ${tag} ${d.source_label}: ${d.source_title}${url}  (semantic score ${d.score.toFixed(2)})${excerpt}`
   })
   if (docSection.length > 0) {
     sections.push(`SEMANTIC DOC MATCHES (from question embedding):\n${docSection.join('\n')}`)
