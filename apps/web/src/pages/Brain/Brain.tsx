@@ -107,12 +107,17 @@ const FILTER_TYPES: NodeType[] = ['assignment', 'file', 'syllabus', 'course', 'e
 const REPULSION = 3400
 const SPRING = 0.018
 const SPRING_LENGTH = 180             // longer edges = more breathing room
-const DAMPING = 0.85
-const CENTER = 0.005                  // weaker so clusters can breathe outward
+const DAMPING = 0.88
+const CENTER = 0.002                  // very weak — course-cohesion + repulsion do the work
 const MIN_DIST_SQ = 0.5
 const REPULSION_MAX_DIST_SQ = 250000  // ~500px reach
 const MAX_VELOCITY = 10
 const INITIAL_WARM_STEPS = 0          // let the raf loop settle live from spiral
+// Nodes without a courseId get pushed OUT to a periphery ring rather than
+// piling up at origin where CENTER pulls everything. Otherwise they form
+// an oscillating central blob that never settles.
+const ORPHAN_RING_RADIUS = 700
+const ORPHAN_RING_PULL = 0.008
 
 // Minimum center-to-center separation between any two nodes (independent of
 // physics). Enforced as a positional resolve after each step — even if a spring
@@ -475,6 +480,17 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
 // Force simulation
 // -----------------------------------------------------------------------------
 
+// Cheap string -> uint32 hash so each orphan node gets a stable angle on the
+// periphery ring instead of jitter-sharing the same target.
+function hashStr(s: string): number {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
 function stepSim(nodes: Positioned[], edges: BrainEdge[], nodeById: Map<string, Positioned>) {
   const n = nodes.length
 
@@ -510,9 +526,19 @@ function stepSim(nodes: Positioned[], edges: BrainEdge[], nodeById: Map<string, 
         fx += (c.x - a.x) * COURSE_COHESION
         fy += (c.y - a.y) * COURSE_COHESION
       }
+      fx += -a.x * CENTER
+      fy += -a.y * CENTER
+    } else {
+      // Orphan node — push toward a peripheral ring instead of the origin.
+      // Uses each node's stable-hash id as a "seat" on the ring so orphans
+      // don't all target the same point.
+      const seed = hashStr(a.id)
+      const targetAngle = (seed / 0xffffffff) * Math.PI * 2
+      const targetX = Math.cos(targetAngle) * ORPHAN_RING_RADIUS
+      const targetY = Math.sin(targetAngle) * ORPHAN_RING_RADIUS
+      fx += (targetX - a.x) * ORPHAN_RING_PULL
+      fy += (targetY - a.y) * ORPHAN_RING_PULL
     }
-    fx += -a.x * CENTER
-    fy += -a.y * CENTER
     a.vx = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, (a.vx + fx) * DAMPING))
     a.vy = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, (a.vy + fy) * DAMPING))
   }
@@ -649,6 +675,23 @@ export default function Brain() {
 
   useEffect(() => {
     const existing = nodeById.current
+    // Cluster-seeded initial layout: pre-place each course at a distinct
+    // ring seat, then place its members inside a small radius around it.
+    // Orphans go on an outer ring (matches the ORPHAN_RING physics).
+    const courseSeeds = new Map<string, { cx: number; cy: number; idx: number }>()
+    let seedCount = 0
+    for (const n of filteredData.nodes) {
+      if (n.courseId && !courseSeeds.has(n.courseId)) {
+        const angle = seedCount * 2.399963229728653
+        const radius = 240 + Math.sqrt(seedCount) * 60
+        courseSeeds.set(n.courseId, {
+          cx: Math.cos(angle) * radius,
+          cy: Math.sin(angle) * radius,
+          idx: 0,
+        })
+        seedCount += 1
+      }
+    }
     const next: Positioned[] = filteredData.nodes.map((n, idx) => {
       const prior = existing.get(n.id)
       const color = TYPE_COLOR[n.type]
@@ -656,12 +699,26 @@ export default function Brain() {
       if (prior) {
         return { ...n, x: prior.x, y: prior.y, vx: 0, vy: 0, fixed: prior.fixed, r, color }
       }
-      const angle = idx * 2.399963229728653
-      const radius = 40 + Math.sqrt(idx) * 20
+      let sx: number
+      let sy: number
+      if (n.courseId && courseSeeds.has(n.courseId)) {
+        const seed = courseSeeds.get(n.courseId)!
+        // Ring of members inside each course centroid.
+        const memberAngle = seed.idx * 1.2 + hashStr(n.id) * 0.0000001
+        const memberR = 20 + (seed.idx % 8) * 6
+        sx = seed.cx + Math.cos(memberAngle) * memberR
+        sy = seed.cy + Math.sin(memberAngle) * memberR
+        seed.idx += 1
+      } else {
+        // Orphan — spiral out at ORPHAN_RING_RADIUS. Using idx keeps it stable.
+        const angle = idx * 2.399963229728653
+        sx = Math.cos(angle) * ORPHAN_RING_RADIUS
+        sy = Math.sin(angle) * ORPHAN_RING_RADIUS
+      }
       return {
         ...n,
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
+        x: sx,
+        y: sy,
         vx: 0,
         vy: 0,
         fixed: false,
@@ -719,8 +776,8 @@ export default function Brain() {
     // that unfreezes (drag, filter change, data reload — see unfreezeSim).
     let frozen = false
     let lowEnergyFrames = 0
-    const LOW_ENERGY_THRESHOLD = 0.5   // avg speed² per node
-    const LOW_ENERGY_FRAMES_NEEDED = 45 // ~1s of stillness at 60fps
+    const LOW_ENERGY_THRESHOLD = 0.15  // stricter — was 0.5, missed slow oscillations
+    const LOW_ENERGY_FRAMES_NEEDED = 60 // ~1s at 60fps
     freezeControls.current = {
       unfreeze: () => {
         frozen = false
