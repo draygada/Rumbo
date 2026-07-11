@@ -209,6 +209,9 @@ function planStructuralNode(row: NormalizedEventRow): StructuralPlan | null {
       // Home page gets its own File node (category='home') so its body_text
       // and body_embedding are retrievable via fan-out. Otherwise 'What's on
       // the home page?' returns nothing because Course itself has no body.
+      // Force the display_name to start with 'Course Home Page' so the LLM
+      // recognizes it as THE home page rather than another wiki page.
+      const pageTitle = typeof rp.title === 'string' ? rp.title.trim() : ''
       return {
         label: 'File',
         id: `canvas_home_${courseId.replace(/^canvas_course_/, '')}`,
@@ -216,7 +219,9 @@ function planStructuralNode(row: NormalizedEventRow): StructuralPlan | null {
         props: {
           course_id: courseId,
           category: 'home',
-          display_name: String(rp.title ?? 'Course Home Page'),
+          display_name: pageTitle
+            ? `Course Home Page — ${pageTitle}`
+            : 'Course Home Page',
           mime_type: 'text/html',
           url: String(rp.html_url ?? ''),
         },

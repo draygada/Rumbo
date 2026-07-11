@@ -256,7 +256,15 @@ export async function retrieveCourseOverview(
   return (await g.run<RetrievalHit>(
     `MATCH (course:Course {id: $courseId, user_id: $userId})-[:CONTAINS]->(source)
      OPTIONAL MATCH (source)-[cov:COVERS]->(concept:Concept)
-     WITH source, cov, concept, course
+     WITH source, cov, concept, course,
+          // Rank home + syllabus first for overview queries; they're the
+          // authoritative "what is this course about" sources.
+          CASE
+            WHEN source.category = 'home' THEN 3
+            WHEN labels(source)[0] = 'Syllabus' THEN 2
+            WHEN source.category = 'page' THEN 1
+            ELSE 0
+          END AS overview_boost
      RETURN source.id AS source_id,
             labels(source)[0] AS source_label,
             coalesce(source.title, source.name, source.display_name, source.body_text) AS source_title,
@@ -271,7 +279,7 @@ export async function retrieveCourseOverview(
             coalesce(cov.is_primary, false) AS is_primary,
             coalesce(cov.weight, 0.3) AS weight,
             concept.first_seen_at AS first_seen_at
-     ORDER BY cov.is_primary DESC NULLS LAST, cov.weight DESC NULLS LAST
+     ORDER BY overview_boost DESC, cov.is_primary DESC NULLS LAST, cov.weight DESC NULLS LAST
      LIMIT $limit`,
     { userId: args.userId, courseId: args.courseId, limit },
   )) as RetrievalHit[]
