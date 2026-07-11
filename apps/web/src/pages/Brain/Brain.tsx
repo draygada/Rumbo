@@ -837,31 +837,6 @@ export default function Brain() {
       }
     }
 
-    // Persistent labels near nodes — Obsidian-style. Only render when zoom is
-    // enough that labels are readable; skip for the smallest nodes at low zoom
-    // so we don't cover everything in overlapping text.
-    const zoomLevel = view.current.zoom
-    if (zoomLevel > 0.35) {
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-      ctx.fillStyle = textColor
-      const fontPx = Math.max(9, 11 / zoomLevel)
-      ctx.font = `${fontPx}px system-ui, -apple-system, sans-serif`
-      for (const p of positioned.current) {
-        // Skip labels for the smallest, most-populous node types at low zoom
-        // — Obsidian only shows all labels when you're zoomed in enough.
-        if (zoomLevel < 0.6 && p.r < 7 && p.type !== 'course') continue
-        const name = p.name
-        if (!name) continue
-        // Truncate long names.
-        const label = name.length > 28 ? name.slice(0, 26) + '…' : name
-        // Small shadow so labels stay legible against edges.
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'
-        ctx.fillText(label, p.x + 1, p.y + p.r + 3)
-        ctx.fillStyle = textColor
-        ctx.fillText(label, p.x, p.y + p.r + 2)
-      }
-    }
   }
 
   const screenToWorld = useCallback((sx: number, sy: number): { x: number; y: number } => {
