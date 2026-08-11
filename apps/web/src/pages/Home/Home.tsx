@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useTasks, getNextBlock, TaskWithBlocks } from '../../hooks/useTasks'
+import { useCourses } from '../../hooks/useCourses'
 import RumboMark from '../../components/RumboMark/RumboMark'
 import { SendIcon } from '../../components/icons/Icons'
 import Markdown from '../../components/Markdown/Markdown'
@@ -131,6 +132,12 @@ export default function Home() {
   const endStreaming = useChatStore(s => s.endStreaming)
   const stopStreaming = useChatStore(s => s.stopStreaming)
 
+  const setCourseId = useChatStore(s => s.setCourseId)
+  const pendingCourseId = useChatStore(s => s.pendingCourseId)
+  const { data: courses } = useCourses()
+  // Scope belongs to the conversation; before one exists it's the pending choice.
+  const courseId = (activeChat ? activeChat.courseId : pendingCourseId) ?? 'all'
+
   const [draft, setDraft] = useState('')
   const [chatsOpen, setChatsOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -181,6 +188,7 @@ export default function Home() {
         userId,
         message: prompt,
         conversationId,
+        courseId: chat?.courseId ?? 'all',
         signal: controller.signal,
         onMeta: m => {
           meta = m as typeof meta
@@ -245,7 +253,7 @@ export default function Home() {
     }
   }
 
-  const topBar = (
+  const topBar = chatsOpen ? null : (
     <div className={styles.topBar}>
       <button
         type="button"
@@ -262,6 +270,30 @@ export default function Home() {
         </button>
       )}
     </div>
+  )
+
+  const coursePicker = (
+    <label className={styles.scopePicker}>
+      <span className={styles.scopeLabel}>Class</span>
+      <select
+        className={styles.scopeSelect}
+        value={courseId}
+        onChange={e => setCourseId(e.target.value === 'all' ? 'all' : e.target.value)}
+        // Scope is fixed once a conversation starts — otherwise earlier answers
+        // in the thread would have come from a different class.
+        disabled={busy || messages.length > 0}
+        title={
+          messages.length > 0
+            ? 'Start a new chat to ask about a different class'
+            : 'Which class this chat is about'
+        }
+      >
+        <option value="all">All classes</option>
+        {(courses ?? []).map(c => (
+          <option key={c.id} value={c.id}>{c.label}</option>
+        ))}
+      </select>
+    </label>
   )
 
   const composer = (
@@ -299,6 +331,7 @@ export default function Home() {
           </h1>
           <p className={styles.subtitle}>What are you working on today?</p>
           {composer}
+          {coursePicker}
           <div className={styles.quick}>
             {suggestions.map(s => (
               <button key={s.label} className={styles.tile} onClick={() => send(s.prompt)} type="button">
@@ -394,7 +427,10 @@ export default function Home() {
       </div>
 
       <div className={styles.dock}>
-        <div className={styles.dockInner}>{composer}</div>
+        <div className={styles.dockInner}>
+          {composer}
+          <div className={styles.dockMeta}>{coursePicker}</div>
+        </div>
       </div>
       </div>
 

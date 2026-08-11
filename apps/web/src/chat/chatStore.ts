@@ -90,6 +90,13 @@ export interface SavedChat {
   createdAt: number
   updatedAt: number
   conversationId: string | null
+  /**
+   * Which class this conversation is about: a course_id, or 'all' for every
+   * course. Scope is per-chat so "what's due this week?" means something
+   * different in an EDUC 475 chat than in an all-courses one. Older persisted
+   * chats have no value and are treated as 'all'.
+   */
+  courseId?: string | null
   messages: ChatMessage[]
 }
 
@@ -111,6 +118,11 @@ interface ChatStoreState {
   // that started it, even if the active chat has since changed).
   appendMessageToChat: (chatId: string, msg: ChatMessage) => void
   setConversationId: (id: string) => void
+  /** Set the active chat's course scope (course_id, or 'all'). */
+  setCourseId: (courseId: string | null) => void
+  /** Scope for the NEXT chat, before one exists. */
+  pendingCourseId: string | null
+  setPendingCourseId: (courseId: string | null) => void
   newChat: () => void
   loadChat: (id: string) => void
   deleteChat: (id: string) => void
@@ -152,6 +164,7 @@ export const useChatStore = create<ChatStoreState>()(
       chats: [],
       activeChatId: null,
       streaming: null,
+      pendingCourseId: null,
 
       appendMessage: (msg) =>
         set((state) => {
@@ -167,6 +180,7 @@ export const useChatStore = create<ChatStoreState>()(
               createdAt: now,
               updatedAt: now,
               conversationId: null,
+              courseId: state.pendingCourseId ?? null,
               messages: [],
             }
             chats = [...chats, fresh]
@@ -211,6 +225,18 @@ export const useChatStore = create<ChatStoreState>()(
             return { ...chat, title, updatedAt: Date.now(), messages: [...chat.messages, msg] }
           }),
         })),
+
+      setCourseId: (courseId) =>
+        set((state) => {
+          if (state.activeChatId === null) return { pendingCourseId: courseId }
+          return {
+            chats: state.chats.map((chat) =>
+              chat.id === state.activeChatId ? { ...chat, courseId } : chat,
+            ),
+          }
+        }),
+
+      setPendingCourseId: (courseId) => set({ pendingCourseId: courseId }),
 
       setConversationId: (id) =>
         set((state) => {
@@ -270,7 +296,11 @@ export const useChatStore = create<ChatStoreState>()(
       name: 'rumbo-tutor-chats',
       // Never persist the live streaming draft — token updates would thrash
       // localStorage, and a half-streamed answer must not survive a reload.
-      partialize: (state) => ({ chats: state.chats, activeChatId: state.activeChatId }),
+      partialize: (state) => ({
+        chats: state.chats,
+        activeChatId: state.activeChatId,
+        pendingCourseId: state.pendingCourseId,
+      }),
     },
   ),
 )

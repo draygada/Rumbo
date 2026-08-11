@@ -25,6 +25,8 @@ interface TutorRequest {
   user_id: string
   session_id?: string | null
   message: string
+  /** '<course_id>' to scope this turn to one class, or 'all' for everything. */
+  course_id?: string | null
   prior_turns?: PriorTurn[]
 }
 
@@ -107,6 +109,7 @@ async function handle(req: Request): Promise<Response> {
           learningMode: 'tutoring',
           courseHint: route.course_hint,
           conceptHint: route.concept_hint,
+          courseScope: body.course_id ?? undefined,
         })
         timing.stage3to7_retrieval = Date.now() - t3
         const t8 = Date.now()
@@ -195,6 +198,7 @@ async function handle(req: Request): Promise<Response> {
         learningMode: route.learning_mode as 'tutoring' | 'exploration' | 'cross_course',
         courseHint: route.course_hint,
         conceptHint: route.concept_hint,
+        courseScope: body.course_id ?? undefined,
       })
       timing.stage3to7_retrieval = Date.now() - t3
 

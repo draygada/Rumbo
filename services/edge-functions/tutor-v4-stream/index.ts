@@ -27,6 +27,8 @@ interface TutorRequest {
   user_id: string
   session_id?: string | null
   message: string
+  /** '<course_id>' to scope this turn to one class, or 'all' for everything. */
+  course_id?: string | null
   prior_turns?: PriorTurn[]
 }
 
@@ -208,6 +210,7 @@ async function runPipeline(
         learningMode: 'tutoring',
         courseHint: route.course_hint,
         conceptHint: route.concept_hint,
+        courseScope: body.course_id ?? undefined,
       })
       send('meta', {
         learning_mode: 'tutoring',
@@ -273,6 +276,7 @@ async function runPipeline(
     learningMode,
     courseHint: route.course_hint,
     conceptHint: route.concept_hint,
+    courseScope: body.course_id ?? undefined,
   })
 
   send('meta', {

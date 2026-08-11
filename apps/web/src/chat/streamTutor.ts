@@ -30,6 +30,8 @@ export interface StreamTutorArgs {
   userId: string
   message: string
   conversationId?: string | null
+  /** course_id to scope this turn, or 'all'. */
+  courseId?: string | null
   onMeta: (m: StreamTutorMeta) => void
   onToken: (delta: string) => void
   onDone: (d: StreamTutorDone) => void
@@ -56,6 +58,7 @@ export async function streamTutor(args: StreamTutorArgs): Promise<void> {
         user_id: args.userId,
         message: args.message,
         session_id: args.conversationId ?? null,
+      course_id: args.courseId ?? undefined,
       }),
       signal: args.signal,
     })

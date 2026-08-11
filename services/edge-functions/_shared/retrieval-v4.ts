@@ -43,6 +43,14 @@ export interface RetrievalRequest {
   learningMode: 'tutoring' | 'exploration' | 'cross_course'
   courseHint: string | null
   conceptHint: string | null
+  /**
+   * Explicit course scope for this turn, chosen by the student:
+   *   '<course_id>' — answer only from that course
+   *   'all'         — search every course
+   *   undefined     — no explicit choice; fall back to DEMO_COURSE_ID if set
+   *                   (used by the eval harness), else search everything.
+   */
+  courseScope?: string | null
 }
 
 export interface RetrievedSource {
@@ -88,10 +96,19 @@ export async function retrieveV4(
     resolveCourseHint(g, req.userId, req.courseHint),
   ])
 
-  // Demo isolation: pin retrieval to a single course when DEMO_COURSE_ID is set,
-  // regardless of what the router resolved from the query. Also forces
-  // within-course fan-out (cross_course would ignore the pin).
-  const demoCourse = Deno.env.get('DEMO_COURSE_ID') || null
+  // Course scope. An explicit per-turn choice always wins — this is what makes
+  // a chat "a chat about ONE class". DEMO_COURSE_ID remains only as a fallback
+  // for callers that don't pass a scope (the eval harness); it must never
+  // silently pin the product, which is what it did when it was the only
+  // mechanism: every question, including "what's due this week?", came back
+  // scoped to the demo course.
+  const explicitScope = req.courseScope
+  const demoCourse =
+    explicitScope === 'all'
+      ? null
+      : explicitScope
+        ? explicitScope
+        : (Deno.env.get('DEMO_COURSE_ID') || null)
   const pinnedCourseIds = demoCourse ? [demoCourse] : courseIds
   const pinnedCrossCourse = req.learningMode === 'cross_course' && !demoCourse
 

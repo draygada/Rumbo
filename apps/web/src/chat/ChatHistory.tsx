@@ -110,7 +110,7 @@ export default function ChatHistory({ open, onClose }: ChatHistoryProps) {
         </header>
 
         <button type="button" className={styles.newChatButton} onClick={handleNewChat}>
-          + New Chat
+          + New chat
         </button>
 
         <div className={styles.body}>
