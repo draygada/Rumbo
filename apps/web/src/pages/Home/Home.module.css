@@ -292,10 +292,6 @@
   border-color: var(--color-border-hover);
 }
 
-/* Icon-only under 640px — the label is redundant once space is tight. */
-@media (max-width: 640px) {
-  .iconTextLabel { display: none; }
-}
 
 .barButton {
   padding: 5px 11px;

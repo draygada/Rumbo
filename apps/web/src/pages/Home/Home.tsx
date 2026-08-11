@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useTasks, getNextBlock, TaskWithBlocks } from '../../hooks/useTasks'
 import RumboMark from '../../components/RumboMark/RumboMark'
-import { SendIcon, HistoryIcon } from '../../components/icons/Icons'
+import { SendIcon } from '../../components/icons/Icons'
 import Markdown from '../../components/Markdown/Markdown'
 import ChatHistory from '../../chat/ChatHistory'
 import { streamTutor } from '../../chat/streamTutor'
@@ -254,7 +254,6 @@ export default function Home() {
         aria-label="Past chats"
         title="Past chats"
       >
-        <HistoryIcon size={16} />
         <span className={styles.iconTextLabel}>Past chats</span>
       </button>
       {active && (
