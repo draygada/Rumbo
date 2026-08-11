@@ -17,6 +17,13 @@
   background: var(--color-bg-page);
 }
 
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
 @media (max-width: 1024px) {
   .toolbar { padding: var(--page-padding-tablet); padding-bottom: var(--space-md); }
 }

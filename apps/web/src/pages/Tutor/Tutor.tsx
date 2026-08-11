@@ -1,31 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
+import Markdown from '../../components/Markdown/Markdown'
+import ChatHistory from './ChatHistory'
+import { streamTutor } from './streamTutor'
+import {
+  useChatStore,
+  useActiveChat,
+  type ChatMessage,
+  type TutorMode,
+  type TutorSource,
+} from './chatStore'
 import styles from './Tutor.module.css'
 
-// Tutor — chat surface backed by the `tutor-v4` Edge Function.
+// Tutor — chat surface backed by the streaming `tutor-v4-stream` Edge Function.
 // See Rumbo-Design-Docs/Features/ai-tutor.md for product constraints:
 //   - No copy affordance on assistant messages (§9)
 //   - No export/download
 //   - Warn banner when a response drifts toward doing the work for the student
-// Streaming is deliberately deferred (V0.1) — spinner during request, full
-// answer rendered at once.
+// Chat state lives in a persisted store (chatStore.ts) so it survives tab
+// navigation and reload; only "New chat" clears the active conversation.
+// Answers stream token-by-token and render as Markdown.
 
 // -----------------------------------------------------------------------------
-// Types (mirror services/edge-functions/tutor-v4/index.ts)
+// Types (ChatMessage / TutorMode / TutorSource come from chatStore)
 // -----------------------------------------------------------------------------
 
 // v4 learning_mode set is broader than v3 — collapse for UI display.
-type TutorMode = 'within_course' | 'cross_course' | 'small_talk'
 type V4LearningMode = 'tutoring' | 'exploration' | 'lookup' | 'cross_course' | 'small_talk'
-
-interface TutorSource {
-  title: string
-  url: string | null
-  course: string | null
-  term: string | null
-  slide_number: number | null
-}
 
 interface V4Source {
   source_type: string
@@ -35,23 +36,11 @@ interface V4Source {
   rerank_score: number | null
 }
 
-interface TutorV4Response {
-  ok: boolean
-  session_id: string | null
-  answer: string
-  learning_mode: V4LearningMode
-  template: string | null
-  model_used: string
-  is_clarifying: boolean
-  sources: V4Source[]
-  timing_ms: Record<string, number>
-}
-
 // v3 mode enum kept for UI code; mapped from v4 learning_mode.
 function mapV4ModeToUI(m: V4LearningMode): TutorMode {
   if (m === 'cross_course') return 'cross_course'
   if (m === 'small_talk') return 'small_talk'
-  return 'within_course'  // tutoring / exploration / lookup all collapse
+  return 'within_course' // tutoring / exploration / lookup all collapse
 }
 
 function mapV4Source(v: V4Source): TutorSource {
@@ -79,30 +68,6 @@ function confidenceFromV4(sources: V4Source[], mode: V4LearningMode): number {
   return topRerank > 0 ? Math.min(0.95, topRerank + 0.4) : 0.6
 }
 
-interface UserMessage {
-  role: 'user'
-  id: string
-  text: string
-}
-
-interface AssistantMessage {
-  role: 'assistant'
-  id: string
-  text: string
-  mode: TutorMode
-  confidence: number
-  sources: TutorSource[]
-  turnId: string | null
-}
-
-interface ErrorMessage {
-  role: 'error'
-  id: string
-  text: string
-}
-
-type ChatMessage = UserMessage | AssistantMessage | ErrorMessage
-
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
@@ -127,7 +92,6 @@ function longestCodeBlockLines(text: string): number {
   if (!matches) return 0
   let longest = 0
   for (const block of matches) {
-    // Strip the fences; count interior newlines.
     const inner = block.replace(/^```[^\n]*\n?/, '').replace(/```$/, '')
     const lines = inner.split('\n').length
     if (lines > longest) longest = lines
@@ -146,8 +110,6 @@ function confidenceBucket(c: number): { label: string; className: string } {
 }
 
 function makeId(): string {
-  // Cheap unique-ish id for keys — turnId (from the server) is used when we need
-  // a stable identity across renders.
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
@@ -159,67 +121,105 @@ export default function Tutor() {
   const { session } = useAuth()
   const userId = session?.user?.id ?? null
 
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState('')
-  const [conversationId, setConversationId] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  // Chat history lives in the persisted store; the active chat's messages drive
+  // the render. `streamText` holds the in-progress assistant answer (not yet
+  // committed to the store) so we don't write to localStorage on every token.
+  const activeChat = useActiveChat()
+  const messages: ChatMessage[] = activeChat?.messages ?? []
+  const appendMessage = useChatStore(s => s.appendMessage)
+  const newChatStore = useChatStore(s => s.newChat)
 
+  const [input, setInput] = useState('')
+  const [streamText, setStreamText] = useState<string | null>(null) // null = idle
+  const [chatsOpen, setChatsOpen] = useState(false)
+
+  const busy = streamText !== null
+  const metaRef = useRef<{ learning_mode: string; sources: V4Source[]; session_id: string | null } | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
-  // Auto-scroll on new message / busy change.
+  // Cancel any in-flight stream when the page unmounts (tab switch mid-answer).
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  // Auto-scroll on new message / streaming token.
   useEffect(() => {
     const el = listRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [messages, busy])
+  }, [messages, streamText])
 
   const send = useCallback(async () => {
     const question = input.trim()
     if (!question || busy) return
+    if (!userId) {
+      appendMessage({ role: 'error', id: makeId(), text: 'Not signed in' })
+      return
+    }
 
-    const userMsg: UserMessage = { role: 'user', id: makeId(), text: question }
-    setMessages(prev => [...prev, userMsg])
+    appendMessage({ role: 'user', id: makeId(), text: question })
     setInput('')
-    setBusy(true)
+    setStreamText('')
+    metaRef.current = null
+
+    // Read the active conversation id AFTER appending (a brand-new chat was just
+    // created with a null conversation id; a continued chat keeps its id).
+    const st = useChatStore.getState()
+    const active = st.chats.find(c => c.id === st.activeChatId) ?? null
+    const conversationId = active?.conversationId ?? null
+
+    const controller = new AbortController()
+    abortRef.current = controller
 
     try {
-      if (!userId) throw new Error('Not signed in')
-      const { data, error } = await supabase.functions.invoke<TutorV4Response>('tutor-v4', {
-        body: {
-          user_id: userId,
-          message: question,
-          session_id: conversationId ?? undefined,
+      await streamTutor({
+        userId,
+        message: question,
+        conversationId,
+        signal: controller.signal,
+        onMeta: m => {
+          metaRef.current = m
+          if (!conversationId && m.session_id) {
+            useChatStore.getState().setConversationId(m.session_id)
+          }
+        },
+        onToken: delta => setStreamText(prev => (prev ?? '') + delta),
+        onDone: ({ answer }) => {
+          const meta = metaRef.current
+          const mode = mapV4ModeToUI((meta?.learning_mode ?? 'tutoring') as V4LearningMode)
+          const uiSources = (meta?.sources ?? []).map(mapV4Source)
+          const confidence = confidenceFromV4(
+            meta?.sources ?? [],
+            (meta?.learning_mode ?? 'tutoring') as V4LearningMode,
+          )
+          appendMessage({
+            role: 'assistant',
+            id: makeId(),
+            text: answer,
+            mode,
+            confidence,
+            sources: uiSources,
+            turnId: null,
+          })
+          setStreamText(null)
+        },
+        onError: e => {
+          appendMessage({ role: 'error', id: makeId(), text: e })
+          setStreamText(null)
         },
       })
-      if (error) throw error
-      if (!data) throw new Error('Empty response from tutor')
-
-      const uiSources = (data.sources ?? []).map(mapV4Source)
-      const assistantMsg: AssistantMessage = {
-        role: 'assistant',
-        id: makeId(),
-        text: data.answer,
-        mode: mapV4ModeToUI(data.learning_mode),
-        confidence: confidenceFromV4(data.sources ?? [], data.learning_mode),
-        sources: uiSources,
-        turnId: null,
-      }
-      setMessages(prev => [...prev, assistantMsg])
-      if (!conversationId && data.session_id) setConversationId(data.session_id)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong.'
-      setMessages(prev => [...prev, { role: 'error', id: makeId(), text: msg }])
+      appendMessage({ role: 'error', id: makeId(), text: msg })
+      setStreamText(null)
     } finally {
-      setBusy(false)
-      // Restore focus so the student can keep typing.
+      abortRef.current = null
       textareaRef.current?.focus()
     }
-  }, [input, busy, conversationId, userId])
+  }, [input, busy, userId, appendMessage])
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Cmd/Ctrl+Enter sends. Plain Enter inserts a newline (matches multi-line
-    // intent — students often paste multi-line questions).
+    // Cmd/Ctrl+Enter sends. Plain Enter inserts a newline.
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       void send()
@@ -227,21 +227,21 @@ export default function Tutor() {
   }
 
   function newChat() {
-    if (busy) return
-    setMessages([])
-    setConversationId(null)
+    abortRef.current?.abort()
+    abortRef.current = null
+    setStreamText(null)
+    newChatStore()
     setInput('')
+    setChatsOpen(false)
     textareaRef.current?.focus()
   }
 
-  const isEmpty = messages.length === 0
+  const isEmpty = messages.length === 0 && streamText === null
 
   const disableSend = busy || input.trim().length === 0
+  const disableNewChat = busy
 
-  const disableNewChat = busy || (messages.length === 0 && conversationId === null)
-
-  // Memoized derived flags per assistant message — small enough to be inline
-  // but the warning check touches every character so we keep it out of render.
+  // Memoized derived flags per committed assistant message.
   const warningFlags = useMemo(() => {
     const flags = new Map<string, boolean>()
     for (const m of messages) {
@@ -259,14 +259,23 @@ export default function Tutor() {
             Ask about anything you've covered. Rumbo answers from your own coursework and cites where.
           </p>
         </div>
-        <button
-          type="button"
-          className={styles.newChatButton}
-          onClick={newChat}
-          disabled={disableNewChat}
-        >
-          New chat
-        </button>
+        <div className={styles.toolbarActions}>
+          <button
+            type="button"
+            className={styles.newChatButton}
+            onClick={() => setChatsOpen(true)}
+          >
+            View chats
+          </button>
+          <button
+            type="button"
+            className={styles.newChatButton}
+            onClick={newChat}
+            disabled={disableNewChat}
+          >
+            New chat
+          </button>
+        </div>
       </header>
 
       <div ref={listRef} className={styles.messageList}>
@@ -307,7 +316,7 @@ export default function Tutor() {
                 </div>
               )}
               <div className={styles.assistantBubble}>
-                <AssistantText text={m.text} />
+                <Markdown>{m.text}</Markdown>
               </div>
               <div className={styles.assistantMeta}>
                 <span className={[styles.confidencePill, bucket.className].join(' ')}>
@@ -346,11 +355,19 @@ export default function Tutor() {
           )
         })}
 
-        {busy && (
+        {/* Streaming answer: spinner until the first token, then live Markdown. */}
+        {streamText !== null && streamText.length === 0 && (
           <div className={styles.assistantRow}>
             <div className={styles.spinnerBubble} aria-live="polite" aria-label="Thinking">
               <span className={styles.spinner} />
               <span className={styles.spinnerText}>Thinking…</span>
+            </div>
+          </div>
+        )}
+        {streamText !== null && streamText.length > 0 && (
+          <div className={styles.assistantRow}>
+            <div className={styles.assistantBubble}>
+              <Markdown>{streamText}</Markdown>
             </div>
           </div>
         )}
@@ -376,54 +393,13 @@ export default function Tutor() {
         />
         <div className={styles.inputFooter}>
           <span className={styles.hint}>Cmd/Ctrl + Enter to send</span>
-          <button
-            type="submit"
-            className={styles.sendButton}
-            disabled={disableSend}
-          >
+          <button type="submit" className={styles.sendButton} disabled={disableSend}>
             {busy ? 'Sending…' : 'Send'}
           </button>
         </div>
       </form>
+
+      <ChatHistory open={chatsOpen} onClose={() => setChatsOpen(false)} />
     </div>
-  )
-}
-
-// -----------------------------------------------------------------------------
-// Assistant text renderer — minimal markdown-ish handling so fenced code blocks
-// don't render as raw backticks. Full markdown is out of scope for V0.1; we
-// only split on ``` fences and preserve line breaks.
-// -----------------------------------------------------------------------------
-
-function AssistantText({ text }: { text: string }) {
-  const parts = useMemo(() => {
-    const out: Array<{ type: 'text' | 'code'; content: string }> = []
-    const regex = /```([\s\S]*?)```/g
-    let last = 0
-    let match: RegExpExecArray | null
-    while ((match = regex.exec(text)) !== null) {
-      if (match.index > last) out.push({ type: 'text', content: text.slice(last, match.index) })
-      const inner = match[1].replace(/^[a-zA-Z0-9_-]*\n/, '')
-      out.push({ type: 'code', content: inner })
-      last = regex.lastIndex
-    }
-    if (last < text.length) out.push({ type: 'text', content: text.slice(last) })
-    return out
-  }, [text])
-
-  return (
-    <>
-      {parts.map((p, i) =>
-        p.type === 'code' ? (
-          <pre key={i} className={styles.codeBlock}>
-            <code>{p.content}</code>
-          </pre>
-        ) : (
-          <div key={i} className={styles.textBlock}>
-            {p.content}
-          </div>
-        ),
-      )}
-    </>
   )
 }

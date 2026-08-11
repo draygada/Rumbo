@@ -1,0 +1,152 @@
+/* Markdown rendering for tutor assistant answers inside a chat bubble.
+   Colors use only design tokens so it reads correctly in light + dark. */
+
+.root {
+  font-size: var(--text-body);
+  line-height: 1.6;
+  color: var(--color-text);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Tight vertical rhythm: no margin leaking past the first/last child. */
+.root > :first-child {
+  margin-top: 0;
+}
+.root > :last-child {
+  margin-bottom: 0;
+}
+
+.root p {
+  margin: 0 0 var(--space-sm);
+}
+
+/* Headings — slightly larger and bold, but restrained inside a bubble. */
+.root h1,
+.root h2,
+.root h3,
+.root h4,
+.root h5,
+.root h6 {
+  margin: var(--space-md) 0 var(--space-sm);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text);
+}
+.root h1 {
+  font-size: 1.35em;
+}
+.root h2 {
+  font-size: 1.2em;
+}
+.root h3 {
+  font-size: 1.1em;
+}
+.root h4,
+.root h5,
+.root h6 {
+  font-size: 1em;
+}
+
+/* Lists — proper indentation and gentle item spacing. */
+.root ul,
+.root ol {
+  margin: 0 0 var(--space-sm);
+  padding-left: 1.4em;
+}
+.root li {
+  margin: 0.2em 0;
+}
+.root li > ul,
+.root li > ol {
+  margin: 0.2em 0 0.2em;
+}
+
+/* Links */
+.root a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+.root a:hover {
+  color: var(--color-link-hover);
+  text-decoration: underline;
+}
+
+/* Emphasis */
+.root strong {
+  font-weight: 600;
+}
+.root em {
+  font-style: italic;
+}
+
+/* Blockquote */
+.root blockquote {
+  margin: 0 0 var(--space-sm);
+  padding-left: var(--space-md);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+/* Horizontal rule */
+.root hr {
+  margin: var(--space-md) 0;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Inline code */
+.root code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.875em;
+  padding: 0.1em 0.35em;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-sm);
+}
+
+/* Fenced code blocks — no wrap, scroll horizontally instead. */
+.root pre {
+  margin: 0 0 var(--space-sm);
+  padding: var(--space-md);
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+.root pre code {
+  display: block;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* GFM tables — react-markdown emits a bare <table>. Make it its own
+   horizontal scroll container so wide tables never break the layout. */
+.root table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 var(--space-sm);
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.root th,
+.root td {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+.root th {
+  background: var(--color-bg-muted);
+  font-weight: 600;
+}
+
+/* Images shouldn't overflow the bubble. */
+.root img {
+  max-width: 100%;
+  height: auto;
+}
