@@ -344,9 +344,14 @@ export default function Tutor() {
                 </span>
                 <span className={styles.modeLabel}>{MODE_LABEL[m.mode]}</span>
               </div>
+              {/* Collapsed by default — the answer is the product; sources are
+                  evidence the student can pull up when they want to verify. */}
               {m.sources.length > 0 && (
-                <div className={styles.sources}>
-                  <div className={styles.sourcesHeader}>Sources</div>
+                <details className={styles.sources}>
+                  <summary className={styles.sourcesSummary}>
+                    <span className={styles.sourcesChevron} aria-hidden="true" />
+                    {m.sources.length} {m.sources.length === 1 ? 'source' : 'sources'}
+                  </summary>
                   <ul className={styles.sourceList}>
                     {m.sources.map((s, i) => (
                       <li key={`${m.id}-src-${i}`} className={styles.sourceRow}>
@@ -369,7 +374,7 @@ export default function Tutor() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </details>
               )}
             </div>
           )

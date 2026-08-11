@@ -238,12 +238,59 @@
 
 /* -------- Sources -------- */
 
+/* Collapsed by default: reads as a quiet affordance, not a panel. Panel chrome
+   only appears once the student opens it. */
 .sources {
   width: 100%;
+}
+
+.sources[open] {
   padding: var(--space-sm) var(--space-md);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+}
+
+.sourcesSummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--text-badge);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  user-select: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.sourcesSummary::-webkit-details-marker { display: none; }
+.sourcesSummary:hover { color: var(--color-text-secondary); }
+.sourcesSummary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.sources[open] .sourcesSummary { margin-bottom: 6px; }
+
+/* Chevron drawn in CSS so it matches the hand-rolled icon stroke. */
+.sourcesChevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.sources[open] .sourcesChevron { transform: rotate(45deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sourcesChevron { transition: none; }
 }
 
 .sourcesHeader {
