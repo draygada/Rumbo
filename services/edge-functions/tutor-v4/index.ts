@@ -96,32 +96,74 @@ async function handle(req: Request): Promise<Response> {
       })
       timing.stage2b_shortcut = Date.now() - t2b
 
-      const t8 = Date.now()
-      const answer = await generateAnswer({
-        query: rewritten.query,
-        learningMode: 'lookup',
-        sources: [],
-        metadata: metaResult,
-        clarifyingQuestion: null,
-      })
-      timing.stage8_answer = Date.now() - t8
+      if (metaResult.empty) {
+        // Shortcut found nothing — common for instructor / meeting-time /
+        // grading questions the Cypher templates don't cover. Fall back to full
+        // semantic retrieval rather than answering "couldn't find anything".
+        const t3 = Date.now()
+        const retrieval = await retrieveV4(g, {
+          userId: body.user_id,
+          query: rewritten.query,
+          learningMode: 'tutoring',
+          courseHint: route.course_hint,
+          conceptHint: route.concept_hint,
+        })
+        timing.stage3to7_retrieval = Date.now() - t3
+        const t8 = Date.now()
+        const answer = await generateAnswer({
+          query: rewritten.query,
+          learningMode: 'tutoring',
+          sources: retrieval.sources,
+          metadata: null,
+          clarifyingQuestion: retrieval.clarifyingQuestion,
+          learnerContext: null,
+        })
+        timing.stage8_answer = Date.now() - t8
+        response = {
+          ok: true,
+          session_id: body.session_id ?? null,
+          answer: answer.text,
+          learning_mode: 'tutoring',
+          template: `lookup_fallback:${route.template}`,
+          model_used: answer.model_used,
+          is_clarifying: answer.is_clarifying,
+          sources: retrieval.sources.map(s => ({
+            source_type: s.source_type,
+            title: s.title,
+            course_code: s.course_code,
+            slide_or_section: s.slide_or_section,
+            rerank_score: s.rerank_score,
+          })),
+          timing_ms: timing,
+        }
+      } else {
+        const t8 = Date.now()
+        const answer = await generateAnswer({
+          query: rewritten.query,
+          learningMode: 'lookup',
+          sources: [],
+          metadata: metaResult,
+          clarifyingQuestion: null,
+        })
+        timing.stage8_answer = Date.now() - t8
 
-      response = {
-        ok: true,
-        session_id: body.session_id ?? null,
-        answer: answer.text,
-        learning_mode: 'lookup',
-        template: route.template,
-        model_used: answer.model_used,
-        is_clarifying: answer.is_clarifying,
-        sources: metaResult.rows.map(r => ({
-          source_type: r.kind,
-          title: r.title,
-          course_code: r.course_code ?? null,
-          slide_or_section: null,
-          rerank_score: null,
-        })),
-        timing_ms: timing,
+        response = {
+          ok: true,
+          session_id: body.session_id ?? null,
+          answer: answer.text,
+          learning_mode: 'lookup',
+          template: route.template,
+          model_used: answer.model_used,
+          is_clarifying: answer.is_clarifying,
+          sources: metaResult.rows.map(r => ({
+            source_type: r.kind,
+            title: r.title,
+            course_code: r.course_code ?? null,
+            slide_or_section: null,
+            rerank_score: null,
+          })),
+          timing_ms: timing,
+        }
       }
     } else if (route.learning_mode === 'small_talk') {
       const t8 = Date.now()
