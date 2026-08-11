@@ -141,6 +141,20 @@ Deno.serve(async (req) => {
   const userId = await getUserIdFromRequest(req)
   if (!userId) return jsonResponse({ error: 'Not authenticated' }, 401)
 
+  // Demo isolation: scope the whole graph to a single course when a course
+  // filter is supplied (POST body { course_id } or ?course_id=), falling back
+  // to the DEMO_COURSE_ID env var. When unset, behaves as before (full graph).
+  let courseFilter: string | null = null
+  if (req.method === 'POST') {
+    try {
+      const body = await req.json()
+      if (body && typeof body.course_id === 'string' && body.course_id) courseFilter = body.course_id
+    } catch { /* empty/invalid body — fall through to env default */ }
+  } else {
+    courseFilter = new URL(req.url).searchParams.get('course_id')
+  }
+  courseFilter = courseFilter || Deno.env.get('DEMO_COURSE_ID') || null
+
   const g = neo4j()
   const admin = createAdminClient()
 
@@ -175,12 +189,17 @@ Deno.serve(async (req) => {
   )) as CoversRow[]
 
   // 3. Pull normalized_events for source-id → record-uuid mapping.
-  const { data: events, error: evErr } = await admin
+  // When a course filter is active, restrict records to that course — this is
+  // what actually scopes the graph, since concepts/mentions are derived from
+  // these records below.
+  let evQuery = admin
     .from('normalized_events')
     .select('id, source_type, external_id, course_id, raw_payload')
     .eq('user_id', userId)
     .eq('classification', 'academic')
     .is('cancelled_at', null)
+  if (courseFilter) evQuery = evQuery.eq('course_id', courseFilter)
+  const { data: events, error: evErr } = await evQuery
   if (evErr) return jsonResponse({ error: 'events read failed', detail: evErr.message }, 500)
 
   const sourceMap = buildSourceMap((events ?? []) as Array<{
@@ -201,15 +220,30 @@ Deno.serve(async (req) => {
     }
   }
 
+  // 5. When scoped to a course, keep only concepts that are actually covered
+  // by this course's materials (i.e. have ≥1 mention from the filtered
+  // records), and prune hierarchy edges to that concept set. Without a filter,
+  // pass everything through unchanged.
+  let conceptsOut = concepts
+  let hierarchyOut = hierarchy
+  if (courseFilter) {
+    const liveConceptIds = new Set(mentions.map((m) => m.concept_id))
+    conceptsOut = concepts.filter((c) => liveConceptIds.has(c.id))
+    hierarchyOut = hierarchy.filter(
+      (h) => liveConceptIds.has(h.child_id) && liveConceptIds.has(h.parent_id),
+    )
+  }
+
   return jsonResponse({
-    concepts,
+    concepts: conceptsOut,
     mentions,
-    hierarchy,
+    hierarchy: hierarchyOut,
+    course_filter: courseFilter,
     counts: {
-      concepts: concepts.length,
+      concepts: conceptsOut.length,
       covers_edges: covers.length,
       mentions: mentions.length,
-      hierarchy_edges: hierarchy.length,
+      hierarchy_edges: hierarchyOut.length,
     },
   })
 })
