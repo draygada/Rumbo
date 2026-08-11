@@ -1,35 +1,35 @@
-.logo {
-  display: block;
-  height: auto;
+.lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
 }
 
-.sidebar {
-  display: block;
-  width: 100%;
-  max-width: 130px;
-  max-height: 36px;
-  object-fit: contain;
-  object-position: left center;
+.word {
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  line-height: 1;
 }
 
+/* sidebar: compact lockup, left aligned */
+.sidebar .word {
+  font-size: 18px;
+}
+
+/* auth: larger, centered above the form */
 .auth {
-  display: block;
-  width: auto;
-  max-width: 220px;
-  max-height: 48px;
+  display: flex;
+  justify-content: center;
   margin: 0 auto 12px;
-  object-fit: contain;
-  object-position: center;
 }
 
-@media (max-width: 768px) {
-  .sidebar {
-    max-width: 100px;
-  }
+.auth .word {
+  font-size: 24px;
 }
 
 @media (max-width: 480px) {
-  .auth {
-    max-width: 160px;
+  .auth .word {
+    font-size: 21px;
   }
 }
