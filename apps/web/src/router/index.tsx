@@ -11,12 +11,13 @@ import Account from '../pages/Account/Account'
 import ManualCourses from '../pages/ManualCourses/ManualCourses'
 import Brain from '../pages/Brain/Brain'
 import Tutor from '../pages/Tutor/Tutor'
+import Home from '../pages/Home/Home'
 // AddTask is preserved but not routed in V0 — see Rumbo-Design-Docs/Legacy/scheduler.md.
 
 function PublicRoute() {
   const { session, profile, loading } = useAuth()
   if (loading) return null
-  if (session && profile?.onboarding_completed) return <Navigate to="/dashboard" replace />
+  if (session && profile?.onboarding_completed) return <Navigate to="/home" replace />
   if (session && !profile?.onboarding_completed) return <Navigate to="/onboarding" replace />
   return <Outlet />
 }
@@ -57,7 +58,10 @@ export const router = createBrowserRouter([
       {
         element: <DashboardLayout />,
         children: [
-          { path: '/dashboard', element: <Dashboard /> },
+          { path: '/home', element: <Home /> },
+          { path: '/tasks', element: <Dashboard /> },
+          // Legacy path kept so existing links/bookmarks don't 404.
+          { path: '/dashboard', element: <Navigate to="/tasks" replace /> },
           { path: '/courses', element: <ManualCourses /> },
           { path: '/brain', element: <Brain /> },
           { path: '/tutor', element: <Tutor /> },
