@@ -416,3 +416,60 @@ a.sourceTitle:hover {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------------
+   Centered content column. The page fills the frame (so the border-bottom and
+   input bar span it), but the readable content sits in one centered column
+   matching Tasks/Courses. 880px keeps line length comfortable for prose.
+   --------------------------------------------------------------------------- */
+.toolbar,
+.messageList,
+.inputBar {
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
+}
+
+/* Thinking state — the mark itself animates instead of a generic spinner. */
+.thinkingBubble {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+}
+
+/* Streaming body: fade each reveal so text arrives softly rather than snapping,
+   and trail a caret so it reads as live typing. */
+.streamingBody {
+  animation: stream-fade var(--duration-fast) var(--ease-out);
+}
+
+.streamingBody::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-accent);
+  animation: caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes stream-fade {
+  from { opacity: 0.55; }
+  to   { opacity: 1; }
+}
+
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamingBody { animation: none; }
+  .streamingBody::after { animation: none; opacity: 1; }
+}

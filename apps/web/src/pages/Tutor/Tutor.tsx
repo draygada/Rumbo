@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import Markdown from '../../components/Markdown/Markdown'
 import ChatHistory from './ChatHistory'
+import RumboMark from '../../components/RumboMark/RumboMark'
+import { useSmoothStream } from './useSmoothStream'
 import { streamTutor } from './streamTutor'
 import {
   useChatStore,
@@ -140,6 +142,9 @@ export default function Tutor() {
 
   const [input, setInput] = useState('')
   const [chatsOpen, setChatsOpen] = useState(false)
+
+  // Reveal the streamed answer at a steady rate rather than in network bursts.
+  const smoothed = useSmoothStream(streamText, false)
 
   const busy = streamText !== null
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -370,19 +375,23 @@ export default function Tutor() {
           )
         })}
 
-        {/* Streaming answer: spinner until the first token, then live Markdown. */}
-        {streamText !== null && streamText.length === 0 && (
+        {/* Streaming answer. Before the first token the mark itself animates
+            (it's the brand's thinking state); once text arrives it reveals at a
+            steady rate via useSmoothStream, with a caret while more is coming. */}
+        {streamText !== null && smoothed.length === 0 && (
           <div className={styles.assistantRow}>
-            <div className={styles.spinnerBubble} aria-live="polite" aria-label="Thinking">
-              <span className={styles.spinner} />
+            <div className={styles.thinkingBubble} aria-live="polite" aria-label="Thinking">
+              <RumboMark size={26} variant="pulse" hubR={5} title="" />
               <span className={styles.spinnerText}>Thinking…</span>
             </div>
           </div>
         )}
-        {streamText !== null && streamText.length > 0 && (
+        {streamText !== null && smoothed.length > 0 && (
           <div className={styles.assistantRow}>
             <div className={styles.assistantBubble}>
-              <Markdown>{streamText}</Markdown>
+              <div className={styles.streamingBody}>
+                <Markdown>{smoothed}</Markdown>
+              </div>
             </div>
           </div>
         )}

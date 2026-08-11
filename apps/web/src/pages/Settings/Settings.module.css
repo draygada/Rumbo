@@ -1,6 +1,7 @@
 .page {
   padding: var(--page-padding-desktop);
   max-width: 640px;
+  margin-inline: auto;
   width: 100%;
 }
 
