@@ -88,6 +88,13 @@ export async function retrieveV4(
     resolveCourseHint(g, req.userId, req.courseHint),
   ])
 
+  // Demo isolation: pin retrieval to a single course when DEMO_COURSE_ID is set,
+  // regardless of what the router resolved from the query. Also forces
+  // within-course fan-out (cross_course would ignore the pin).
+  const demoCourse = Deno.env.get('DEMO_COURSE_ID') || null
+  const pinnedCourseIds = demoCourse ? [demoCourse] : courseIds
+  const pinnedCrossCourse = req.learningMode === 'cross_course' && !demoCourse
+
   // Empty retrieval fallback (per pipeline-v4.md + this session's decision):
   // when concept resolver returns 0 in tutoring/cross_course mode, ask a
   // clarifying question instead of running blind.
@@ -108,9 +115,9 @@ export async function retrieveV4(
   let laneB: FanOutHit[] = []
   let resolvedCourseCodes: string[] = []
 
-  if (req.learningMode === 'cross_course') {
+  if (pinnedCrossCourse) {
     // Lane B first, identify course set via APPEARS_IN
-    laneB = await runLaneB(g, req, resolvedConcepts, [])
+    laneB = await runLaneB(g, req, resolvedConcepts, [], false)
     resolvedCourseCodes = uniq(
       laneB.map(h => h.course_code).filter((c): c is string => !!c),
     )
@@ -118,14 +125,14 @@ export async function retrieveV4(
     // codes from the traversal, not hints).
     const scopeIds = await codesToIds(g, req.userId, resolvedCourseCodes)
     laneA = queryEmbed
-      ? await runLaneA(g, req, queryEmbed, scopeIds)
+      ? await runLaneA(g, req, queryEmbed, scopeIds, false)
       : []
   } else {
     ;[laneA, laneB] = await Promise.all([
-      queryEmbed ? runLaneA(g, req, queryEmbed, courseIds) : Promise.resolve([]),
-      runLaneB(g, req, resolvedConcepts, courseIds),
+      queryEmbed ? runLaneA(g, req, queryEmbed, pinnedCourseIds, !!demoCourse) : Promise.resolve([]),
+      runLaneB(g, req, resolvedConcepts, pinnedCourseIds, !!demoCourse),
     ])
-    resolvedCourseCodes = courseIds  // report internal IDs for now
+    resolvedCourseCodes = pinnedCourseIds  // report internal IDs for now
   }
 
   // Stage 5: RRF fusion
@@ -302,10 +309,11 @@ async function runLaneA(
   req: RetrievalRequest,
   queryEmbed: number[],
   courseCodes: string[],
+  strict: boolean,
 ): Promise<FanOutHit[]> {
   const [bm25, vec] = await Promise.all([
-    laneA_BM25(g, req, courseCodes),
-    laneA_Vector(g, req, queryEmbed, courseCodes),
+    laneA_BM25(g, req, courseCodes, strict),
+    laneA_Vector(g, req, queryEmbed, courseCodes, strict),
   ])
   const fused = rrfFuse([bm25, vec])
   return fused.slice(0, LANE_A_TOP)
@@ -315,14 +323,21 @@ async function laneA_BM25(
   g: Neo4jClient,
   req: RetrievalRequest,
   courseCodes: string[],
+  strict: boolean,
 ): Promise<FanOutHit[]> {
+  // strict (demo pin): a Chunk has no course_id of its own, so resolve it via
+  // its parent doc; drop the NULL escape so cross-course nodes can't leak.
+  const bm25Filter = courseCodes.length === 0 ? ''
+    : strict
+      ? 'AND (node.course_id IN $codes OR EXISTS { MATCH (pp)-[:HAS_CHUNK]->(node) WHERE pp.course_id IN $codes })'
+      : 'AND (node.course_id IS NULL OR node.course_id IN $codes)'
   const hits: FanOutHit[] = []
   for (const idx of FULLTEXT_INDEXES) {
     try {
       const rows = await g.run(
         `CALL db.index.fulltext.queryNodes($idx, $q) YIELD node, score
          WHERE node.user_id = $userId
-           ${courseCodes.length > 0 ? 'AND (node.course_id IS NULL OR node.course_id IN $codes)' : ''}
+           ${bm25Filter}
          WITH node, score ORDER BY score DESC LIMIT 15
          OPTIONAL MATCH (c:Course { user_id: $userId })-[:CONTAINS]->(node)
          RETURN labels(node)[0] AS label, node.id AS id,
@@ -365,7 +380,12 @@ async function laneA_Vector(
   req: RetrievalRequest,
   queryEmbed: number[],
   courseCodes: string[],
+  strict: boolean,
 ): Promise<FanOutHit[]> {
+  const vecFilter = courseCodes.length === 0 ? ''
+    : strict
+      ? 'AND parent.course_id IN $codes'
+      : 'AND (parent.course_id IS NULL OR parent.course_id IN $codes)'
   const hits: FanOutHit[] = []
   try {
     // Chunk-level vector search
@@ -376,7 +396,7 @@ async function laneA_Vector(
        WITH node, score
        MATCH (parent)-[:HAS_CHUNK]->(node)
        WHERE parent.user_id = $userId
-         ${courseCodes.length > 0 ? 'AND (parent.course_id IS NULL OR parent.course_id IN $codes)' : ''}
+         ${vecFilter}
        OPTIONAL MATCH (c:Course { user_id: $userId })-[:CONTAINS]->(parent)
        RETURN labels(parent)[0] AS label, parent.id AS parent_id,
               node.id AS chunk_id, node.text AS chunk_text, node.heading AS heading,
@@ -424,9 +444,14 @@ async function runLaneB(
   req: RetrievalRequest,
   resolvedConcepts: Array<{ id: string; name: string }>,
   courseCodes: string[],
+  strict: boolean,
 ): Promise<FanOutHit[]> {
   if (resolvedConcepts.length === 0) return []
   const conceptIds = resolvedConcepts.map(c => c.id)
+  const srcFilter = courseCodes.length === 0 ? ''
+    : strict
+      ? 'AND (source.course_id IN $codes OR source.id IN $codes)'
+      : 'AND (source.course_id IS NULL OR source.course_id IN $codes)'
   try {
     const rows = await g.run(
       `MATCH (concept:Concept { user_id: $userId })
@@ -437,7 +462,7 @@ async function runLaneB(
        UNWIND all_concepts AS c
        MATCH (source)-[cov:COVERS]->(c)
        WHERE source.user_id = $userId
-         ${courseCodes.length > 0 ? 'AND (source.course_id IS NULL OR source.course_id IN $codes)' : ''}
+         ${srcFilter}
        OPTIONAL MATCH (course:Course { user_id: $userId })-[:CONTAINS]->(source)
        WITH source, cov, course, c
        ORDER BY cov.weight DESC LIMIT $topK

@@ -119,7 +119,7 @@ export async function anthropicText(args: {
       }),
     })
     if (!res.ok) {
-      console.warn(`[anthropic] text ${res.status}: ${(await res.text()).slice(0, 240)}`)
+      console.warn(`[anthropic] text ${res.status} (${model}): ${(await res.text()).slice(0, 240)}`)
       return null
     }
     const data = await res.json()
