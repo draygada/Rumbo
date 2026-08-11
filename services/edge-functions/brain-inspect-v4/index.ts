@@ -22,6 +22,38 @@ Deno.serve(async (req) => {
   const out: Record<string, unknown> = {}
 
   try {
+    // ---- Concept-sprawl diagnostic (read-only). ?diag=dump&user=<user_id>
+    if (url.searchParams.get('diag') === 'dump') {
+      const userId = url.searchParams.get('user')
+      out.mode = 'concept_dump'
+      out.user_id = userId
+      out.generated_at = new Date().toISOString()
+      out.concepts = await g.run(
+        `MATCH (c:Concept)
+         WHERE $u IS NULL OR c.user_id = $u
+         OPTIONAL MATCH (c)<-[cov:COVERS]-(src)
+         WITH c, count(cov) AS covers_in, collect(DISTINCT labels(src)[0]) AS src_labels,
+              collect(DISTINCT src.course_id) AS src_courses
+         OPTIONAL MATCH (c)-[:PARENT_CONCEPT]->(p:Concept)
+         WITH c, covers_in, src_labels, src_courses, count(p) AS parent_out
+         OPTIONAL MATCH (c)<-[:PARENT_CONCEPT]-(ch:Concept)
+         WITH c, covers_in, src_labels, src_courses, parent_out, count(ch) AS child_in
+         OPTIONAL MATCH (c)-[:APPEARS_IN]->(course:Course)
+         RETURN c.id AS id, c.name AS name, c.normalized_name AS norm,
+                coalesce(c.mention_count, 0) AS mentions,
+                c.created_at AS created_at,
+                c.domain_tags AS domain_tags,
+                c.bloom_typical_level AS bloom,
+                covers_in, parent_out, child_in,
+                [l IN src_labels WHERE l IS NOT NULL] AS src_labels,
+                [x IN src_courses WHERE x IS NOT NULL] AS src_courses,
+                collect(DISTINCT course.code) AS appears_in_courses
+         ORDER BY c.created_at DESC`,
+        { u: userId },
+      )
+      return jsonResponse(out)
+    }
+
     if (courseHint) {
       // Course-scoped diagnostic
       out.mode = 'course_lookup'

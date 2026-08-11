@@ -286,6 +286,19 @@ const REASON_SCHEMA = {
   required: ['tiered_concepts'],
 }
 
+const MAX_TIER1_PER_RECORD = 3
+const MAX_TIER2_PER_RECORD = 5
+
+// Keep the highest-confidence concepts within each tier's budget. Tier-2
+// entries whose parent didn't survive still emit; the pipeline's PARENT_CONCEPT
+// step already skips edges whose parent has no id.
+function capTiers<T extends { tier: number; confidence?: number }>(items: T[]): T[] {
+  const byConf = (a: T, b: T) => (b.confidence ?? 0.7) - (a.confidence ?? 0.7)
+  const tier1 = items.filter(t => t.tier === 1).sort(byConf).slice(0, MAX_TIER1_PER_RECORD)
+  const tier2 = items.filter(t => t.tier === 2).sort(byConf).slice(0, MAX_TIER2_PER_RECORD)
+  return [...tier1, ...tier2]
+}
+
 export async function reasonTiers(args: {
   sourceType: string
   courseName: string | null
@@ -327,8 +340,14 @@ ${proposalBlock}`
   })
   if (!out?.tiered_concepts || !Array.isArray(out.tiered_concepts)) return []
 
-  return out.tiered_concepts
-    .filter(t => t && (t.tier === 1 || t.tier === 2))
+  // REASON_SYSTEM asks for "only 1-3 tier-1 concepts per record" and says
+  // nothing about tier-2, and nothing enforced either — so a long document
+  // could mint an unbounded number of concepts. Enforce both in code, keeping
+  // the highest-confidence ones. Purely reductive.
+  const capped = capTiers(
+    out.tiered_concepts.filter(t => t && (t.tier === 1 || t.tier === 2)),
+  )
+  return capped
     .map(t => ({
       candidate_id: t.candidate_id ?? null,
       proposal_name: t.proposal_name ?? null,

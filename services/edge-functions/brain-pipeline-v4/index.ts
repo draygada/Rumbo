@@ -76,6 +76,9 @@ interface RunResult {
   chunks_created: number
   concepts_created: number
   concepts_matched: number
+  // Reasoner proposals Pass 2 declined — previously written to the graph as
+  // permanent zero-edge nodes. Tracked so the discard rate stays visible.
+  concepts_discarded_uncovered: number
   parent_edges: number
   covers_edges: number
   errors: string[]
@@ -339,9 +342,21 @@ async function processOneRecord(
       : []
 
   // 8. Three-stage extraction
-  const chunksForPass1 = chunks.length > 0
+  // Pass 1 makes ONE Haiku call per chunk, sequentially. A large deck (the
+  // 83k-char HBS case → ~64 chunks at WINDOW_SIZE 1500 / OVERLAP 200) therefore
+  // needs ~64 calls ≈ 2 min for Pass 1 alone, blowing Supabase's 150s edge
+  // timeout. The function then dies before marking the record done, the next
+  // batch re-selects the same record, and the queue stalls permanently — which
+  // is exactly what happened to the 12 newly-extracted lecture PDFs.
+  //
+  // Cap the Pass-1 fan-out with an evenly-spaced sample so later sections still
+  // contribute concepts (taking the head would bias to title/agenda slides).
+  // NOTE: this only samples CONCEPT EXTRACTION. Every chunk is still embedded
+  // and upserted above, so retrieval keeps full-document coverage.
+  const allPass1Chunks = chunks.length > 0
     ? chunks.map(c => ({ chunk_index: c.index, heading: c.heading, text: c.text }))
     : [{ chunk_index: 0, heading: null, text: bodyText.slice(0, 6000) }]
+  const chunksForPass1 = samplePass1Chunks(allPass1Chunks)
 
   const extraction = await extractV4({
     sourceType: row.source_type,
@@ -353,13 +368,32 @@ async function processOneRecord(
 
   // 9. Resolve tiered concepts → concept IDs. Build a name→id map so
   // parent_name references can be wired into PARENT_CONCEPT edges.
+  //
+  // Only materialize concepts Pass 2 confirmed this record actually COVERS.
+  // Previously every reasoner proposal was written to Neo4j here — BEFORE
+  // Pass 2 decided coverage. Pass 2 drops anything under 0.5 confidence and is
+  // told "emitting nothing is valid", and there is no rollback, so every
+  // rejected proposal became a permanent zero-edge node. Measured 2026-08-11:
+  // 150/603 concepts (25%) had no mentions AND no COVERS edges, and the orphan
+  // rate on newly-created concepts had climbed 1% → 27% → 54% across batches.
+  // Filtering here is purely reductive: it removes writes, never adds them.
+  const coveredKeys = new Set(
+    extraction.matches.map(m =>
+      m.identity.candidate_id
+        ? `cid:${m.identity.candidate_id}`
+        : `pn:${normalizeConceptName(m.identity.proposal_name ?? '')}`,
+    ),
+  )
+  const tieredCovered = extraction.tiered.filter(t => coveredKeys.has(keyOf(t)))
+  result.concepts_discarded_uncovered += extraction.tiered.length - tieredCovered.length
+
   const resolved = await resolveTieredConcepts(g, {
-    userId, tiered: extraction.tiered, candidates,
+    userId, tiered: tieredCovered, candidates,
   })
   result.concepts_created += resolved.newConceptIds.length
 
   // 10. PARENT_CONCEPT edges (tier-2 → tier-1)
-  for (const tier2 of extraction.tiered) {
+  for (const tier2 of tieredCovered) {
     if (tier2.tier !== 2 || !tier2.parent_name) continue
     const childId = resolved.identityToId(tier2)
     const parentId = resolved.parentNameToId.get(normalizeConceptName(tier2.parent_name))
@@ -508,6 +542,19 @@ async function resolveTieredConcepts(
   }
 }
 
+// Max chunks fed to Pass 1 (one Haiku call each). 24 keeps the fan-out near
+// ~40s, leaving room for embeddings + reasoner + Pass 2 inside the 150s edge
+// timeout even at batch size 5.
+const MAX_PASS1_CHUNKS = 24
+
+function samplePass1Chunks<T>(chunks: T[]): T[] {
+  if (chunks.length <= MAX_PASS1_CHUNKS) return chunks
+  const step = chunks.length / MAX_PASS1_CHUNKS
+  const out: T[] = []
+  for (let i = 0; i < MAX_PASS1_CHUNKS; i++) out.push(chunks[Math.floor(i * step)])
+  return out
+}
+
 function keyOf(t: TieredConcept): string {
   return t.candidate_id ? `cid:${t.candidate_id}` : `pn:${normalizeConceptName(t.proposal_name ?? '')}`
 }
@@ -536,7 +583,7 @@ async function markDone(
 async function runForUser(userId: string, limit: number): Promise<RunResult> {
   const result: RunResult = {
     processed: 0, skipped_cached: 0, chunks_created: 0,
-    concepts_created: 0, concepts_matched: 0,
+    concepts_created: 0, concepts_matched: 0, concepts_discarded_uncovered: 0,
     parent_edges: 0, covers_edges: 0, errors: [],
   }
   const admin = createAdminClient()
