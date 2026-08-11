@@ -414,43 +414,22 @@
   overflow: hidden;
 }
 
-/* Class scope — which course this conversation is about. */
-.scopePicker {
+/* Scope readout — the active space decides it, so this states rather than
+   asks. Switching is a two-finger swipe (or a pip click) in the rail. */
+.scopeNote {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin-top: var(--space-md);
   font-size: var(--text-caption);
   color: var(--color-text-muted);
 }
 
-.scopeLabel {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-  font-size: var(--text-badge);
-}
-
-.scopeSelect {
-  padding: 4px 8px;
-  background: var(--color-bg-surface);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-family: var(--font-family);
-  font-size: var(--text-caption);
-  cursor: pointer;
-  max-width: 200px;
-}
-
-.scopeSelect:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.scopeSelect:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
+.scopeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
 }
 
 .dockMeta {
@@ -459,4 +438,4 @@
   margin-top: 2px;
 }
 
-.dockMeta .scopePicker { margin-top: 0; }
+.dockMeta .scopeNote { margin-top: 0; }

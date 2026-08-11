@@ -56,17 +56,24 @@
   --color-bg-surface: var(--card);
   --color-bg-sidebar: var(--base2);
   --color-bg-muted: var(--base2);
-  --color-bg-selected: color-mix(in srgb, var(--terra) 9%, var(--card));
+  --color-bg-selected: color-mix(in srgb, var(--space-bright) 9%, var(--card));
   --color-border: var(--border);
   --color-border-hover: var(--text3);
   --color-on-primary: var(--oninv);
 
+  /* Active space hue. spaces/useSpaces.ts#useApplySpaceAccent overwrites these
+     two on <html> when you switch space; everything below derives from them, so
+     the whole app (canvas included) recolours without touching a component.
+     Defaults are terra — the brand accent, and the Home space's colour. */
+  --space-ink: var(--terra-ink); /* AA-safe: small text and links */
+  --space-bright: var(--terra); /* saturated: fills, dots, focus ring */
+
   --color-primary: var(--plum);
   --color-primary-hover: var(--plum2);
-  --color-accent: var(--terra-ink);
-  --color-focus: var(--terra); /* bright is fine: 3:1 non-text ring */
-  --color-link: var(--terra-ink);
-  --color-link-hover: var(--terra-ink-hover);
+  --color-accent: var(--space-ink);
+  --color-focus: var(--space-bright); /* bright is fine: 3:1 non-text ring */
+  --color-link: var(--space-ink);
+  --color-link-hover: color-mix(in srgb, var(--space-ink) 85%, var(--text));
   --color-error: #b4524e;
   --color-error-bg: #faf4f4;
   --color-shadow: rgba(27, 24, 21, 0.1);
@@ -139,7 +146,7 @@
   --color-bg-surface: var(--card);
   --color-bg-sidebar: var(--base2);
   --color-bg-muted: #26232b;
-  --color-bg-selected: color-mix(in srgb, var(--terra) 16%, var(--card));
+  --color-bg-selected: color-mix(in srgb, var(--space-bright) 16%, var(--card));
   --color-border: var(--border);
   --color-border-hover: #4a4753;
   /* Primary buttons invert in dark mode (light fill), so their label must be
@@ -149,10 +156,12 @@
 
   --color-primary: var(--oninv);
   --color-primary-hover: #d7d3cc;
-  --color-accent: #f08a72;
-  --color-focus: var(--terra);
-  --color-link: #f08a72;
-  --color-link-hover: #f6a892;
+  /* The AA-safe `ink` variants are tuned for light surfaces and go muddy on a
+     dark one, so dark mode takes the saturated hue instead. */
+  --color-accent: var(--space-bright);
+  --color-focus: var(--space-bright);
+  --color-link: var(--space-bright);
+  --color-link-hover: color-mix(in srgb, var(--space-bright) 78%, #ffffff);
   --color-error: #e08a86;
   --color-error-bg: #2a1e1e;
   --color-shadow: rgba(0, 0, 0, 0.35);

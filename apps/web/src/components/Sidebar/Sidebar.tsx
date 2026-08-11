@@ -3,6 +3,8 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { getInitials } from '../../lib/initials'
 import RumboMark from '../RumboMark/RumboMark'
+import SpaceSwitcher from '../../spaces/SpaceSwitcher'
+import { useActiveSpace, useApplySpaceAccent } from '../../spaces/useSpaces'
 import {
   ChatIcon, TasksIcon, CoursesIcon, SettingsIcon, UserIcon, BrainIcon,
 } from '../icons/Icons'
@@ -25,6 +27,10 @@ const ACCOUNT_MENU = [
 
 export default function Sidebar() {
   const { profile } = useAuth()
+  // The rail is the one component mounted on every signed-in screen, so it's
+  // where the space's hue gets applied to <html>.
+  const activeSpace = useActiveSpace()
+  useApplySpaceAccent(activeSpace)
   const initials = getInitials(profile?.name, profile?.email)
   const name = profile?.name?.trim() || profile?.email?.split('@')[0] || ''
   const email = profile?.email ?? ''
@@ -52,13 +58,15 @@ export default function Sidebar() {
   }, [menuOpen])
 
   return (
-    <aside className={styles.rail}>
+    <aside className={styles.rail} data-rail>
       <NavLink to="/home" className={styles.brand} aria-label="Rumbo home">
         <span className={styles.brandMark}>
           <RumboMark size={30} variant="anim" hubR={6} />
         </span>
         <span className={styles.brandWord}>Rumbo</span>
       </NavLink>
+
+      <SpaceSwitcher />
 
       <nav className={styles.nav}>
         <ul className={styles.group}>

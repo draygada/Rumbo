@@ -85,32 +85,43 @@ export async function retrieveV4(
   g: Neo4jClient,
   req: RetrievalRequest,
 ): Promise<RetrievalResult> {
-  // Stage 3: parallel setup
-  // Resolve course_hint UP FRONT to internal Course.id values. The router
-  // hands us a human-shaped hint ("EDUC 475"); actual course.id is
-  // `canvas_course_XXX` and course.code is `W26-EDUC-475-01`. Lane A/B then
-  // filter by exact node.course_id IN $ids (no fragile CONTAINS).
-  const [queryEmbed, resolvedConcepts, courseIds] = await Promise.all([
-    embedQuery(req.query),
-    resolveConcepts(g, req),
-    resolveCourseHint(g, req.userId, req.courseHint),
-  ])
-
   // Course scope. An explicit per-turn choice always wins — this is what makes
   // a chat "a chat about ONE class". DEMO_COURSE_ID remains only as a fallback
   // for callers that don't pass a scope (the eval harness); it must never
   // silently pin the product, which is what it did when it was the only
   // mechanism: every question, including "what's due this week?", came back
   // scoped to the demo course.
+  //
+  // Resolved BEFORE the fan-out below, because knowing the course up front is
+  // what lets us skip work rather than redo it.
   const explicitScope = req.courseScope
-  const demoCourse =
+  const scopedCourse =
     explicitScope === 'all'
       ? null
       : explicitScope
         ? explicitScope
         : (Deno.env.get('DEMO_COURSE_ID') || null)
-  const pinnedCourseIds = demoCourse ? [demoCourse] : courseIds
-  const pinnedCrossCourse = req.learningMode === 'cross_course' && !demoCourse
+
+  // Stage 3: parallel setup
+  // Resolve course_hint UP FRONT to internal Course.id values. The router
+  // hands us a human-shaped hint ("EDUC 475"); actual course.id is
+  // `canvas_course_XXX` and course.code is `W26-EDUC-475-01`. Lane A/B then
+  // filter by exact node.course_id IN $ids (no fragile CONTAINS).
+  //
+  // When the caller already knows the course — a chat started in a class space
+  // sends its course_id — that resolution is a round-trip whose answer we
+  // already have, and `pinnedCourseIds` below would discard it anyway. Skip it:
+  // it's an apoc regex scan across every Course node for this user.
+  const [queryEmbed, resolvedConcepts, courseIds] = await Promise.all([
+    embedQuery(req.query),
+    resolveConcepts(g, req),
+    scopedCourse
+      ? Promise.resolve([scopedCourse])
+      : resolveCourseHint(g, req.userId, req.courseHint),
+  ])
+
+  const pinnedCourseIds = scopedCourse ? [scopedCourse] : courseIds
+  const pinnedCrossCourse = req.learningMode === 'cross_course' && !scopedCourse
 
   // Empty-retrieval fallback. Previously this short-circuited whenever concept
   // resolution returned 0 — but Lane A (BM25 + vector) does NOT need concepts,
@@ -151,8 +162,8 @@ export async function retrieveV4(
       // not. When Cohere embed fails (quota/rate-limit), that gate silently
       // removed keyword search too, so any query without a resolvable concept
       // (i.e. no Lane B either) retrieved nothing at all. Run Lane A always.
-      runLaneA(g, req, queryEmbed, pinnedCourseIds, !!demoCourse),
-      runLaneB(g, req, resolvedConcepts, pinnedCourseIds, !!demoCourse),
+      runLaneA(g, req, queryEmbed, pinnedCourseIds, !!scopedCourse),
+      runLaneB(g, req, resolvedConcepts, pinnedCourseIds, !!scopedCourse),
     ])
     resolvedCourseCodes = pinnedCourseIds  // report internal IDs for now
   }

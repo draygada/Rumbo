@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listManualCourses } from '../../lib/manualCourses'
 import { supabase } from '../../lib/supabase'
+import { isCanvasCourseCurrent } from '../../lib/courseTerm'
+import { useActiveSpace } from '../../spaces/useSpaces'
 import styles from './ManualCourses.module.css'
 
 // A single unified course card, whether the underlying record came from
@@ -22,93 +24,6 @@ interface CourseCard {
 // -----------------------------------------------------------------------------
 // Data helpers
 // -----------------------------------------------------------------------------
-
-// Parse Stanford-style term prefix from course_code — F24, W25, Sp26, Su26.
-// Returns the approximate term end date (year, month=season-end, day=15) or
-// null if the code doesn't match. Conservative on year rollover.
-function parseTermPrefix(code: string): { endMs: number; year: number; season: string } | null {
-  const m = code.match(/^(F|W|Sp|Su)(\d{2})/i)
-  if (!m) return null
-  const season = m[1].toLowerCase()
-  const year = 2000 + parseInt(m[2], 10)
-  let endMonthZeroBased: number
-  let endDay = 15
-  switch (season) {
-    case 'f':  endMonthZeroBased = 11; endDay = 20; break  // Fall ~ Dec 20
-    case 'w':  endMonthZeroBased = 2;  endDay = 20; break  // Winter ~ Mar 20
-    case 'sp': endMonthZeroBased = 5;  endDay = 20; break  // Spring ~ Jun 20
-    case 'su': endMonthZeroBased = 7;  endDay = 30; break  // Summer ~ Aug 30
-    default: return null
-  }
-  return { season, year, endMs: new Date(year, endMonthZeroBased, endDay).getTime() }
-}
-
-// Detect "2024-25", "2024-2025", "2024/25", "24-25" — an academic-year range
-// embedded in a course name or code, common for admin shells that don't have
-// a real Canvas term. Returns the end year (Aug of that year) as ms.
-function parseAcademicYearRange(text: string): number | null {
-  const m = text.match(/(20\d{2}|\b\d{2})[\s\-\/](20\d{2}|\d{2})\b/)
-  if (!m) return null
-  const raw = m[2]
-  const endYear = raw.length === 2 ? 2000 + parseInt(raw, 10) : parseInt(raw, 10)
-  if (endYear < 2000 || endYear > 2100) return null
-  // Academic year ends August 31 of the second year.
-  return new Date(endYear, 7, 31).getTime()
-}
-
-// The term is the single most reliable signal: if the term has ended, the
-// course belongs in the archive. Everything else (workflow_state, enrollment
-// state, course.end_at) is used as a fallback when no term info is present,
-// because Canvas leaves many of those fields stale.
-function isCanvasCourseCurrent(payload: Record<string, unknown>): boolean {
-  const now = Date.now()
-  const code = typeof payload.course_code === 'string' ? payload.course_code : ''
-  const name = typeof payload.name === 'string' ? payload.name : ''
-
-  // 1. Stanford-style term prefix in course_code — canonical for Stanford
-  //    (F24-CS-107, Sp26-CS-146J, Su26-…).
-  const prefix = parseTermPrefix(code)
-  if (prefix) return prefix.endMs >= now
-
-  // 2. Canvas term object (?include=term) with a real end_at. Canvas returns
-  //    "Default Term" for admin shells and its end_at is usually null, so
-  //    that case falls through to the year-range heuristic below.
-  const term = (payload.term as Record<string, unknown> | undefined) ?? {}
-  const termName = (typeof term.name === 'string' ? term.name : '').toLowerCase()
-  if (typeof term.end_at === 'string') {
-    const termEnd = new Date(term.end_at).getTime()
-    if (!Number.isNaN(termEnd)) return termEnd >= now
-  }
-
-  // 3. Embedded academic-year range in the course name or code — catches admin
-  //    shells like "…2024-2025" and "…2025-26" that don't have a proper term.
-  const yearEnd = parseAcademicYearRange(name) ?? parseAcademicYearRange(code)
-  if (yearEnd !== null) return yearEnd >= now
-
-  // 4. Fall back to per-course dates + explicit states.
-  const state = (typeof payload.workflow_state === 'string' ? payload.workflow_state : '').toLowerCase()
-  if (state === 'completed' || state === 'deleted' || state === 'unpublished') return false
-
-  const enrollments = Array.isArray(payload.enrollments) ? payload.enrollments as Array<Record<string, unknown>> : []
-  if (enrollments.length > 0 && enrollments.every(e => e.enrollment_state === 'completed')) return false
-
-  if (typeof payload.end_at === 'string') {
-    const endAt = new Date(payload.end_at).getTime()
-    if (!Number.isNaN(endAt) && endAt < now) return false
-  }
-  if (typeof payload.start_at === 'string') {
-    const startAt = new Date(payload.start_at).getTime()
-    if (!Number.isNaN(startAt) && startAt > now + 60 * 24 * 60 * 60 * 1000) return false
-  }
-
-  // 5. Final safety net: if Canvas gave us essentially nothing (Default Term,
-  //    no dates, no year in the name), archive it. These are admin shells —
-  //    they should stay out of the current view, and if a real course somehow
-  //    landed here without term info, the user can find it in Archive.
-  if (termName === 'default term' || termName === '') return false
-
-  return true
-}
 
 // Human-friendly relative time — "in 2 days", "tomorrow", "today", "next week".
 function relativeDue(iso: string): string {
@@ -260,6 +175,7 @@ function CourseCardView({ card }: { card: CourseCard }) {
 // -----------------------------------------------------------------------------
 
 export default function ManualCourses() {
+  const space = useActiveSpace()
   const [cards, setCards] = useState<CourseCard[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<string | null>(null)
@@ -272,17 +188,22 @@ export default function ManualCourses() {
       .finally(() => setLoading(false))
   }, [])
 
+  // In a class space this page narrows to that one course; Home shows all.
+  const scoped = useMemo(
+    () => (space.courseId ? cards.filter(c => c.courseId === space.courseId) : cards),
+    [cards, space.courseId],
+  )
   const currentCards = useMemo(
-    () => cards.filter(c => c.isCurrent).sort(sortByCode),
-    [cards],
+    () => scoped.filter(c => c.isCurrent).sort(sortByCode),
+    [scoped],
   )
   const archiveCards = useMemo(
-    () => cards.filter(c => !c.isCurrent).sort(sortByCode),
-    [cards],
+    () => scoped.filter(c => !c.isCurrent).sort(sortByCode),
+    [scoped],
   )
 
   const showList = tab === 'current' ? currentCards : archiveCards
-  const showEmpty = !loading && cards.length === 0
+  const showEmpty = !loading && scoped.length === 0
 
   return (
     <div className={styles.page}>
@@ -343,7 +264,7 @@ export default function ManualCourses() {
         </ul>
       )}
 
-      {tab === 'current' && !loading && cards.length > 0 && (
+      {tab === 'current' && !loading && scoped.length > 0 && (
         <p className={styles.subtleAdd}>
           <Link to="/settings?add=course" className={styles.emptyActionLink}>
             + Add another course

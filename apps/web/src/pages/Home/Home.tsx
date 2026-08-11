@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useTasks, getNextBlock, TaskWithBlocks } from '../../hooks/useTasks'
-import { useCourses } from '../../hooks/useCourses'
+import { useActiveSpace } from '../../spaces/useSpaces'
+import { useSpaceStore } from '../../spaces/spaceStore'
 import RumboMark from '../../components/RumboMark/RumboMark'
 import { SendIcon } from '../../components/icons/Icons'
 import Markdown from '../../components/Markdown/Markdown'
@@ -132,11 +133,27 @@ export default function Home() {
   const endStreaming = useChatStore(s => s.endStreaming)
   const stopStreaming = useChatStore(s => s.stopStreaming)
 
-  const setCourseId = useChatStore(s => s.setCourseId)
-  const pendingCourseId = useChatStore(s => s.pendingCourseId)
-  const { data: courses } = useCourses()
-  // Scope belongs to the conversation; before one exists it's the pending choice.
-  const courseId = (activeChat ? activeChat.courseId : pendingCourseId) ?? 'all'
+  // Scope now comes from the space you're standing in rather than a per-chat
+  // dropdown. An existing conversation keeps the courseId it was born with, so
+  // earlier answers in the thread stay consistent with later ones.
+  const space = useActiveSpace()
+  const activeChatId = useChatStore(s => s.activeChatId)
+  const rememberActiveChat = useSpaceStore(s => s.rememberActiveChat)
+  const setPendingCourseId = useChatStore(s => s.setPendingCourseId)
+
+  // Keep the space's memory current, so swiping away and back resumes this
+  // conversation rather than dropping into a blank one.
+  useEffect(() => {
+    rememberActiveChat()
+  }, [activeChatId, rememberActiveChat])
+
+  // Covers first load and a course going inactive under a persisted space id —
+  // enterSpace() handles every deliberate switch.
+  useEffect(() => {
+    if (useChatStore.getState().activeChatId === null) {
+      setPendingCourseId(space.courseId)
+    }
+  }, [space.courseId, activeChatId, setPendingCourseId])
 
   const [draft, setDraft] = useState('')
   const [chatsOpen, setChatsOpen] = useState(false)
@@ -272,28 +289,13 @@ export default function Home() {
     </div>
   )
 
-  const coursePicker = (
-    <label className={styles.scopePicker}>
-      <span className={styles.scopeLabel}>Class</span>
-      <select
-        className={styles.scopeSelect}
-        value={courseId}
-        onChange={e => setCourseId(e.target.value === 'all' ? 'all' : e.target.value)}
-        // Scope is fixed once a conversation starts — otherwise earlier answers
-        // in the thread would have come from a different class.
-        disabled={busy || messages.length > 0}
-        title={
-          messages.length > 0
-            ? 'Start a new chat to ask about a different class'
-            : 'Which class this chat is about'
-        }
-      >
-        <option value="all">All classes</option>
-        {(courses ?? []).map(c => (
-          <option key={c.id} value={c.id}>{c.label}</option>
-        ))}
-      </select>
-    </label>
+  // Read-only: the space is the scope, so it's stated rather than chosen here.
+  // Switching is a swipe (or a pip click) in the rail.
+  const scopeNote = (
+    <p className={styles.scopeNote}>
+      <span className={styles.scopeDot} style={{ background: space.bright }} aria-hidden="true" />
+      {space.courseId ? `Scoped to ${space.name}` : 'Searching every class'}
+    </p>
   )
 
   const composer = (
@@ -331,7 +333,7 @@ export default function Home() {
           </h1>
           <p className={styles.subtitle}>What are you working on today?</p>
           {composer}
-          {coursePicker}
+          {scopeNote}
           <div className={styles.quick}>
             {suggestions.map(s => (
               <button key={s.label} className={styles.tile} onClick={() => send(s.prompt)} type="button">
@@ -429,7 +431,7 @@ export default function Home() {
       <div className={styles.dock}>
         <div className={styles.dockInner}>
           {composer}
-          <div className={styles.dockMeta}>{coursePicker}</div>
+          <div className={styles.dockMeta}>{scopeNote}</div>
         </div>
       </div>
       </div>

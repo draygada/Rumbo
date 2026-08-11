@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
+import { isCanvasCourseCurrent } from '../lib/courseTerm'
 
 /*
  * The student's courses, derived from ingested course records.
@@ -18,10 +19,16 @@ export interface Course {
   name: string
   /** Short label for chips/menus: the code if present, else a trimmed name. */
   label: string
+  /**
+   * Is the course still running this term? Only current courses get a space
+   * (see spaces/useSpaces.ts) — archived ones stay reachable via "New space".
+   */
+  isCurrent: boolean
 }
 
 interface CourseRow {
   course_id: string | null
+  source_type: string
   raw_payload: Record<string, unknown> | null
 }
 
@@ -42,7 +49,7 @@ export function useCourses() {
     queryFn: async (): Promise<Course[]> => {
       const { data, error } = await supabase
         .from('normalized_events')
-        .select('course_id, raw_payload')
+        .select('course_id, source_type, raw_payload')
         .in('source_type', ['canvas_course', 'manual_course'])
         .is('cancelled_at', null)
       if (error) throw error
@@ -55,7 +62,14 @@ export function useCourses() {
         const code = typeof rp.course_code === 'string' && rp.course_code.trim()
           ? rp.course_code.trim()
           : null
-        byId.set(row.course_id, { id: row.course_id, code, name, label: shortLabel(code, name) })
+        // Manual courses have no term metadata and are only listed while
+        // un-archived, so they always count as current.
+        const isCurrent = row.source_type === 'manual_course'
+          ? true
+          : isCanvasCourseCurrent(rp)
+        byId.set(row.course_id, {
+          id: row.course_id, code, name, label: shortLabel(code, name), isCurrent,
+        })
       }
       return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label))
     },

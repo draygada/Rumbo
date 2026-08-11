@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useActiveSpace } from '../../spaces/useSpaces'
 import {
   useUpcomingAssignments,
   useStillOpenAssignments,
@@ -44,7 +45,14 @@ function formatCalendarTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
+/** Restrict a list of events to the active space's class. */
+function scopeEvents(events: NormalizedEvent[] | undefined, courseId: string | null): NormalizedEvent[] {
+  const all = events ?? []
+  return courseId ? all.filter(e => e.course_id === courseId) : all
+}
+
 export default function Dashboard() {
+  const space = useActiveSpace()
   const upcoming = useUpcomingAssignments()
   const coursesQuery = useCourses()
   const courses = coursesQuery.data
@@ -56,14 +64,23 @@ export default function Dashboard() {
 
   const [stillOpenExpanded, setStillOpenExpanded] = useState(false)
 
+  // Everything on this page is scoped to the space you're in. In a class space
+  // the calendar list scopes to empty (calendar events carry no course_id) and
+  // its section drops out, which is right — "Today" is a cross-class view.
+  const scope = space.courseId
+  const upcomingList = useMemo(() => scopeEvents(upcoming.data, scope), [upcoming.data, scope])
+  const stillOpenList = useMemo(() => scopeEvents(stillOpen.data, scope), [stillOpen.data, scope])
+  const recentList = useMemo(() => scopeEvents(recentlyAdded.data, scope), [recentlyAdded.data, scope])
+  const calendarList = useMemo(() => scopeEvents(todaysCalendar.data, scope), [todaysCalendar.data, scope])
+
   const isLoading =
     upcoming.isLoading || stillOpen.isLoading || recentlyAdded.isLoading || todaysCalendar.isLoading || sources.isLoading
   const isError = upcoming.isError || stillOpen.isError || recentlyAdded.isError || todaysCalendar.isError
 
-  const upcomingCount = (upcoming.data ?? []).length
-  const stillOpenCount = (stillOpen.data ?? []).length
-  const recentCount = (recentlyAdded.data ?? []).length
-  const calendarCount = (todaysCalendar.data ?? []).length
+  const upcomingCount = upcomingList.length
+  const stillOpenCount = stillOpenList.length
+  const recentCount = recentList.length
+  const calendarCount = calendarList.length
 
   const hasAnyEvents = upcomingCount + stillOpenCount + recentCount + calendarCount > 0
   const hasSources = sources.data?.any ?? false
@@ -74,7 +91,7 @@ export default function Dashboard() {
   const showIngestionPending = !isLoading && hasSources && !hasAnyEvents && canvasPending
   const showCaughtUp = !isLoading && hasSources && !hasAnyEvents && !canvasPending
 
-  const grouped = upcoming.data ? groupByCourse(upcoming.data) : new Map()
+  const grouped = groupByCourse(upcomingList)
 
   return (
     <div className={styles.page}>
@@ -140,7 +157,7 @@ export default function Dashboard() {
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>Recently added</h2>
             <div className={styles.list}>
-              {(recentlyAdded.data ?? []).map(event => renderCard(event, courses))}
+              {recentList.map(event => renderCard(event, courses))}
             </div>
           </section>
         )}
@@ -149,7 +166,7 @@ export default function Dashboard() {
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>Today</h2>
             <div className={styles.list}>
-              {(todaysCalendar.data ?? []).map(event => {
+              {calendarList.map(event => {
                 const payload = event.raw_payload as Record<string, unknown>
                 const title = (typeof payload.summary === 'string' && payload.summary)
                   || (typeof payload.title === 'string' && payload.title)
@@ -195,7 +212,7 @@ export default function Dashboard() {
             </button>
             {stillOpenExpanded && (
               <div className={styles.list}>
-                {(stillOpen.data ?? []).map(event => renderCard(event, courses, true))}
+                {stillOpenList.map(event => renderCard(event, courses, true))}
               </div>
             )}
           </section>

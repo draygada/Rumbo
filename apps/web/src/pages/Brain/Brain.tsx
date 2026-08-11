@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
+import { useActiveSpace } from '../../spaces/useSpaces'
 import styles from './Brain.module.css'
 
 // Brain — a graph where every node is a concrete thing (a task, a file, a
@@ -133,6 +134,11 @@ const MIN_NODE_SEPARATION_SQ = MIN_NODE_SEPARATION * MIN_NODE_SEPARATION
 // Very light course cohesion — enough for drag snap-back, not enough to
 // move anything on initial load.
 const COURSE_COHESION = 0.0008
+// Opacity applied to everything outside the active space's course. The graph
+// stays whole — one brain, not one per class — and the space just says which
+// part of it we're talking about.
+const DIMMED_ALPHA = 0.1
+const DIMMED_EDGE_ALPHA = 0.05
 // A token appearing in > this fraction of nodes is generic and won't carry
 // signal ("assignment", "reading", "week"). Ignored entirely.
 const GENERIC_CONCEPT_MAX_FREQ = 0.20   // tighter — was 0.35, too permissive at 400 nodes
@@ -679,6 +685,7 @@ function radiusFor(node: BrainNode): number {
 // -----------------------------------------------------------------------------
 
 export default function Brain() {
+  const space = useActiveSpace()
   const { data, isLoading, isError } = useQuery({
     queryKey: ['brain-v2'],
     queryFn: fetchBrain,
@@ -699,6 +706,10 @@ export default function Brain() {
   // Default zoom pulled back so the wider layout (courses seat at ~450-800px
   // radius; orphans at 1200px) fits a standard viewport on initial paint.
   const view = useRef({ x: 0, y: 0, zoom: 0.42})
+  // The draw loop is bound once and can't see props, so the focused course
+  // rides in on a ref.
+  const focusRef = useRef<string | null>(space.courseId)
+  focusRef.current = space.courseId
   const panState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const dragState = useRef<{ nodeId: string; offsetX: number; offsetY: number } | null>(null)
 
@@ -798,6 +809,22 @@ export default function Brain() {
     unfreezeSim()
   }, [filteredData, unfreezeSim])
 
+  // Entering a space flies the camera to that course's cluster. This is the
+  // "we already know what we're looking at" half of scoping: the node is
+  // identified from the space instead of being hunted for.
+  useEffect(() => {
+    if (!space.courseId) {
+      view.current = { x: 0, y: 0, zoom: 0.42 }
+      return
+    }
+    const members = positioned.current.filter(p => p.courseId === space.courseId)
+    if (members.length === 0) return
+    let cx = 0
+    let cy = 0
+    for (const p of members) { cx += p.x; cy += p.y }
+    view.current = { x: -cx / members.length, y: -cy / members.length, zoom: 0.85 }
+  }, [space.courseId, filteredData])
+
   useEffect(() => {
     const canvas = canvasRef.current
     const wrap = wrapRef.current
@@ -887,12 +914,19 @@ export default function Brain() {
     const border = getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() || '#dbd9e2'
     const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim() || '#2b2a2e'
 
+    // The active space focuses the graph rather than filtering it: out-of-scope
+    // nodes stay drawn but recede, so the class you're in reads as a region of
+    // one brain and the bridges out of it are still visible.
+    const focus = focusRef.current
+    const inFocus = (n: { courseId: string | null }) => !focus || n.courseId === focus
+
     // Draw same-class edges first, then cross-class on top so bridges are
     // always visible above the intra-cluster web.
     const drawEdge = (e: BrainEdge, onTop: boolean) => {
       const a = nodeById.current.get(e.source)
       const b = nodeById.current.get(e.target)
       if (!a || !b) return
+      const edgeFocused = inFocus(a) || inFocus(b)
       const dx = b.x - a.x, dy = b.y - a.y
       const dist = Math.sqrt(dx * dx + dy * dy)
       if (dist === 0) return
@@ -906,7 +940,7 @@ export default function Brain() {
       ctx.moveTo(x1, y1)
       ctx.lineTo(x2, y2)
       ctx.strokeStyle = border
-      ctx.globalAlpha = highlight ? 0.95 : 0.5
+      ctx.globalAlpha = edgeFocused ? (highlight ? 0.95 : 0.5) : DIMMED_EDGE_ALPHA
       ctx.lineWidth = 1.2 / view.current.zoom
       ctx.stroke()
       void onTop  // parameter kept for clarity even though painting order already handles it
@@ -916,6 +950,7 @@ export default function Brain() {
     ctx.globalAlpha = 1
 
     for (const p of positioned.current) {
+      ctx.globalAlpha = inFocus(p) ? 1 : DIMMED_ALPHA
       ctx.beginPath()
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
       ctx.fillStyle = p.color
@@ -931,7 +966,7 @@ export default function Brain() {
         ctx.stroke()
       }
     }
-
+    ctx.globalAlpha = 1
   }
 
   const screenToWorld = useCallback((sx: number, sy: number): { x: number; y: number } => {
@@ -1059,7 +1094,9 @@ export default function Brain() {
         <div className={styles.headingBlock}>
           <h1 className={styles.title}>Brain</h1>
           <p className={styles.subtitle}>
-            Every node is a task, file, syllabus, or course. Edges form when nodes share concepts.
+            {space.courseId
+              ? `Focused on ${space.name}. The rest of the graph stays visible so cross-class links still read.`
+              : 'Every node is a task, file, syllabus, or course. Edges form when nodes share concepts.'}
           </p>
         </div>
         <div className={styles.filters} role="group" aria-label="Filter nodes by type">
