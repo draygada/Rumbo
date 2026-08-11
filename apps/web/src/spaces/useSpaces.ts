@@ -24,7 +24,32 @@ export interface Space {
   ink: string
   /** Saturated hue for dots, fills and the focus ring. */
   bright: string
+  /** Hue washed into the page/rail/card surfaces, or 'transparent' for paper. */
+  tint: string
+  /** Which SPACE_BACKGROUNDS entry is in effect. */
+  backgroundId: string
 }
+
+/**
+ * Background washes. The tint is mixed into the existing warm-paper (or warm-
+ * dark) surfaces at a low percentage rather than replacing them, so text
+ * contrast and the whole token set survive untouched — see index.css.
+ */
+export interface SpaceBackground {
+  id: string
+  label: string
+  tint: string
+}
+
+export const SPACE_BACKGROUNDS: SpaceBackground[] = [
+  { id: 'paper', label: 'Paper', tint: 'transparent' },
+  { id: 'sage', label: 'Sage', tint: '#4fa06b' },
+  { id: 'ocean', label: 'Ocean', tint: '#3e9aac' },
+  { id: 'lilac', label: 'Lilac', tint: '#8a6fd4' },
+  { id: 'ochre', label: 'Ochre', tint: '#e8a23e' },
+  { id: 'rose', label: 'Rose', tint: '#d4638e' },
+  { id: 'terra', label: 'Terra', tint: '#e86a4f' },
+]
 
 // One hue per space so the whole app recolours as you swipe. Terra is reserved
 // for Home (it's the brand accent), so the rotation deliberately excludes it.
@@ -42,10 +67,28 @@ const HOME_COLOR = { ink: '#b0513c', bright: '#e86a4f' } // terra
 export function useSpaces(): Space[] {
   const { data: courses } = useCourses()
   const custom = useSpaceStore(s => s.custom)
+  const backgroundBySpace = useSpaceStore(s => s.backgroundBySpace)
 
   return useMemo(() => {
+    // A space's background defaults to a wash of its own hue, so spaces look
+    // distinct out of the box; Home stays warm paper. Either can be overridden
+    // from the space menu.
+    const resolveBackground = (id: string, kind: SpaceKind, bright: string) => {
+      const chosen = backgroundBySpace[id]
+      if (chosen) {
+        const bg = SPACE_BACKGROUNDS.find(b => b.id === chosen)
+        if (bg) return { tint: bg.tint, backgroundId: bg.id }
+      }
+      return kind === 'home'
+        ? { tint: 'transparent', backgroundId: 'paper' }
+        : { tint: bright, backgroundId: 'auto' }
+    }
+
     const list: Space[] = [
-      { id: HOME_SPACE_ID, name: 'Home', courseId: null, kind: 'home', ...HOME_COLOR },
+      {
+        id: HOME_SPACE_ID, name: 'Home', courseId: null, kind: 'home', ...HOME_COLOR,
+        ...resolveBackground(HOME_SPACE_ID, 'home', HOME_COLOR.bright),
+      },
     ]
 
     // Colour by position rather than by hash: a hash can hand neighbouring
@@ -56,12 +99,14 @@ export function useSpaces(): Space[] {
 
     for (const course of courses ?? []) {
       if (!course.isCurrent) continue
+      const color = nextHue()
       list.push({
         id: course.id,
         name: course.label,
         courseId: course.id,
         kind: 'course',
-        ...nextHue(),
+        ...color,
+        ...resolveBackground(course.id, 'course', color.bright),
       })
     }
 
@@ -69,17 +114,19 @@ export function useSpaces(): Space[] {
       // Don't double up if the student made a space for a course that has since
       // become active and picked up an automatic one.
       if (space.courseId && list.some(s => s.courseId === space.courseId)) continue
+      const color = nextHue()
       list.push({
         id: space.id,
         name: space.name || 'Untitled space',
         courseId: space.courseId,
         kind: 'custom',
-        ...nextHue(),
+        ...color,
+        ...resolveBackground(space.id, 'custom', color.bright),
       })
     }
 
     return list
-  }, [courses, custom])
+  }, [courses, custom, backgroundBySpace])
 }
 
 /**
@@ -98,18 +145,20 @@ export function useActiveSpace(): Space {
 /**
  * Repaint the app in the active space's hue.
  *
- * Writes two custom properties on <html>; index.css derives --color-accent,
- * --color-link, --color-focus and --color-bg-selected from them (picking `ink`
- * in light mode and `bright` in dark). Doing it with two variables rather than
- * per-component props means the recolour is free everywhere — including the
- * canvas in Brain, which reads the tokens off the document element.
+ * Writes three custom properties on <html>; index.css derives the accent tokens
+ * from --space-ink/--space-bright (picking `ink` in light mode and `bright` in
+ * dark) and washes --space-tint into the page, rail and card surfaces. Doing it
+ * with variables rather than per-component props means the recolour is free
+ * everywhere — including the canvas in Brain, which reads tokens straight off
+ * the document element.
  */
-export function useApplySpaceAccent(space: Space): void {
+export function useApplySpaceTheme(space: Space): void {
   useEffect(() => {
     const root = document.documentElement
     root.style.setProperty('--space-ink', space.ink)
     root.style.setProperty('--space-bright', space.bright)
-  }, [space.ink, space.bright])
+    root.style.setProperty('--space-tint', space.tint)
+  }, [space.ink, space.bright, space.tint])
 }
 
 /** Index of the active space in the ordered list — drives the swipe strip. */

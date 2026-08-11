@@ -4,7 +4,11 @@ import { useAuth } from '../../hooks/useAuth'
 import { getInitials } from '../../lib/initials'
 import RumboMark from '../RumboMark/RumboMark'
 import SpaceSwitcher from '../../spaces/SpaceSwitcher'
-import { useActiveSpace, useApplySpaceAccent } from '../../spaces/useSpaces'
+import { useSpaceSwipe } from '../../spaces/useSpaceSwipe'
+import { useSpaceStore } from '../../spaces/spaceStore'
+import {
+  useSpaces, useActiveSpace, useActiveSpaceIndex, useApplySpaceTheme,
+} from '../../spaces/useSpaces'
 import {
   ChatIcon, TasksIcon, CoursesIcon, SettingsIcon, UserIcon, BrainIcon,
 } from '../icons/Icons'
@@ -30,7 +34,23 @@ export default function Sidebar() {
   // The rail is the one component mounted on every signed-in screen, so it's
   // where the space's hue gets applied to <html>.
   const activeSpace = useActiveSpace()
-  useApplySpaceAccent(activeSpace)
+  useApplySpaceTheme(activeSpace)
+
+  // The two-finger swipe listens on the WHOLE rail, not just the switcher
+  // block. Scoped to the switcher it was a ~64x46px target you had to find;
+  // the rail is the full height of the window and is what "swipe in the
+  // taskbar" actually means.
+  const spaces = useSpaces()
+  const spaceIndex = useActiveSpaceIndex()
+  const enterSpace = useSpaceStore(s => s.enterSpace)
+  const { ref: railRef, dragX } = useSpaceSwipe<HTMLElement>({
+    count: spaces.length,
+    index: spaceIndex,
+    onChange: next => {
+      const target = spaces[next]
+      if (target) enterSpace(target.id, target.courseId)
+    },
+  })
   const initials = getInitials(profile?.name, profile?.email)
   const name = profile?.name?.trim() || profile?.email?.split('@')[0] || ''
   const email = profile?.email ?? ''
@@ -58,7 +78,7 @@ export default function Sidebar() {
   }, [menuOpen])
 
   return (
-    <aside className={styles.rail} data-rail>
+    <aside className={styles.rail} data-rail ref={railRef}>
       <NavLink to="/home" className={styles.brand} aria-label="Rumbo home">
         <span className={styles.brandMark}>
           <RumboMark size={30} variant="anim" hubR={6} />
@@ -66,7 +86,7 @@ export default function Sidebar() {
         <span className={styles.brandWord}>Rumbo</span>
       </NavLink>
 
-      <SpaceSwitcher />
+      <SpaceSwitcher dragX={dragX} />
 
       <nav className={styles.nav}>
         <ul className={styles.group}>

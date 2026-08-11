@@ -16,6 +16,10 @@
   background: var(--color-bg-sidebar);
   border-right: 1px solid var(--color-border);
   overflow: hidden;
+  /* The whole rail is the two-finger swipe target (see useSpaceSwipe). The
+     listener calls preventDefault on horizontal wheels; declaring pan-y stops
+     the browser starting its own history-back gesture first. */
+  touch-action: pan-y;
   transition:
     width 0.2s var(--ease-out),
     box-shadow 0.2s var(--ease-out);

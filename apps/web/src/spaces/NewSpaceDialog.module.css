@@ -66,6 +66,31 @@
   outline-offset: 1px;
 }
 
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.swatch:hover {
+  transform: scale(1.08);
+}
+
+.swatchActive {
+  /* Ring rather than a border swap, so the swatch keeps its full colour area. */
+  box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 3px var(--color-text);
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;

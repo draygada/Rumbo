@@ -1,58 +1,69 @@
 import { useState } from 'react'
 import { useSpaces, useActiveSpaceIndex } from './useSpaces'
 import { useSpaceStore } from './spaceStore'
-import { useSpaceSwipe } from './useSpaceSwipe'
 import NewSpaceDialog from './NewSpaceDialog'
+import SpaceMenu from './SpaceMenu'
 import styles from './SpaceSwitcher.module.css'
 
 /*
  * The space switcher, docked at the top of the rail under the wordmark.
  *
  * Collapsed the rail is 64px, so only the active space's dot and the position
- * pips are visible; the names ride in with the rail's hover expansion, matching
+ * pips are visible; the name rides in with the rail's hover expansion, matching
  * how the nav labels already behave.
  *
- * Two-finger swipe anywhere in this block moves between spaces (see
- * useSpaceSwipe), and the strip tracks the fingers before snapping.
+ * The swipe gesture itself lives on the rail (see Sidebar.tsx) so the whole
+ * column is the target rather than this block; `dragX` is the live finger
+ * offset it hands back for the strip to track.
  */
-export default function SpaceSwitcher() {
+export default function SpaceSwitcher({ dragX }: { dragX: number }) {
   const spaces = useSpaces()
   const index = useActiveSpaceIndex()
   const enterSpace = useSpaceStore(s => s.enterSpace)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const go = (next: number) => {
     const space = spaces[next]
     if (space) enterSpace(space.id, space.courseId)
   }
 
-  const { ref, dragX } = useSpaceSwipe<HTMLDivElement>({
-    count: spaces.length,
-    index,
-    onChange: go,
-  })
-
   const active = spaces[index]
 
   return (
     <>
       <div
-        ref={ref}
         className={styles.switcher}
         role="group"
-        aria-label="Spaces — swipe with two fingers, or press Cmd+Option+Arrow"
+        aria-label="Spaces — swipe the sidebar with two fingers, or press Cmd+Option+Arrow"
       >
         <div className={styles.viewport}>
           <div
             className={[styles.strip, dragX !== 0 ? styles.stripDragging : ''].join(' ')}
             style={{ transform: `translateX(calc(${-index * 100}% + ${dragX}px))` }}
           >
-            {spaces.map(space => (
-              <div className={styles.slide} key={space.id} aria-hidden={space.id !== active?.id}>
-                <span className={styles.dot} style={{ background: space.bright }} />
-                <span className={styles.name}>{space.name}</span>
-              </div>
-            ))}
+            {spaces.map(space => {
+              const isActive = space.id === active?.id
+              return (
+                <div className={styles.slide} key={space.id} aria-hidden={!isActive}>
+                  <span className={styles.dot} style={{ background: space.bright }} />
+                  {isActive ? (
+                    <button
+                      type="button"
+                      className={styles.nameButton}
+                      onClick={() => setMenuOpen(o => !o)}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      title="Space options"
+                    >
+                      {space.name}
+                    </button>
+                  ) : (
+                    <span className={styles.name}>{space.name}</span>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
 
@@ -80,6 +91,7 @@ export default function SpaceSwitcher() {
         </div>
       </div>
 
+      {menuOpen && active && <SpaceMenu space={active} onClose={() => setMenuOpen(false)} />}
       {dialogOpen && <NewSpaceDialog onClose={() => setDialogOpen(false)} />}
     </>
   )

@@ -34,10 +34,16 @@ interface SpaceStoreState {
   activeSpaceId: string
   /** space id → the chat that was open there, so swiping back resumes it. */
   lastChatIdBySpace: Record<string, string | null>
+  /**
+   * space id → chosen background id (see SPACE_BACKGROUNDS). Absent means the
+   * space keeps its default: warm paper for Home, its own hue elsewhere.
+   */
+  backgroundBySpace: Record<string, string>
 
   enterSpace: (spaceId: string, courseId: string | null) => void
-  createSpace: (name: string, courseId: string | null) => string
+  createSpace: (name: string, courseId: string | null, background?: string) => string
   deleteSpace: (id: string) => void
+  setBackground: (spaceId: string, backgroundId: string) => void
   /** Snapshot the active chat into the active space (called as chats change). */
   rememberActiveChat: () => void
 }
@@ -52,6 +58,7 @@ export const useSpaceStore = create<SpaceStoreState>()(
       custom: [],
       activeSpaceId: HOME_SPACE_ID,
       lastChatIdBySpace: {},
+      backgroundBySpace: {},
 
       enterSpace: (spaceId, courseId) => {
         const state = get()
@@ -79,24 +86,37 @@ export const useSpaceStore = create<SpaceStoreState>()(
         chat.setPendingCourseId(courseId)
       },
 
-      createSpace: (name, courseId) => {
+      createSpace: (name, courseId, background) => {
         const id = newId()
-        set(state => ({ custom: [...state.custom, { id, name: name.trim(), courseId }] }))
+        set(state => ({
+          custom: [...state.custom, { id, name: name.trim(), courseId }],
+          backgroundBySpace: background
+            ? { ...state.backgroundBySpace, [id]: background }
+            : state.backgroundBySpace,
+        }))
         get().enterSpace(id, courseId)
         return id
       },
 
       deleteSpace: (id) =>
         set(state => {
-          const rest = { ...state.lastChatIdBySpace }
-          delete rest[id]
+          const chats = { ...state.lastChatIdBySpace }
+          const backgrounds = { ...state.backgroundBySpace }
+          delete chats[id]
+          delete backgrounds[id]
           return {
             custom: state.custom.filter(s => s.id !== id),
             // Deleting the space you're in drops you Home rather than nowhere.
             activeSpaceId: state.activeSpaceId === id ? HOME_SPACE_ID : state.activeSpaceId,
-            lastChatIdBySpace: rest,
+            lastChatIdBySpace: chats,
+            backgroundBySpace: backgrounds,
           }
         }),
+
+      setBackground: (spaceId, backgroundId) =>
+        set(state => ({
+          backgroundBySpace: { ...state.backgroundBySpace, [spaceId]: backgroundId },
+        })),
 
       rememberActiveChat: () =>
         set(state => ({

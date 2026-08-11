@@ -4,9 +4,6 @@
 .switcher {
   flex-shrink: 0;
   padding: 10px 12px 6px;
-  /* The swipe listener calls preventDefault on horizontal wheel events; telling
-     the browser up front keeps it from starting its own pan/back gesture. */
-  touch-action: pan-y;
 }
 
 .viewport {
@@ -49,7 +46,9 @@
   margin-left: 4px;
 }
 
-.name {
+.name,
+.nameButton {
+  font-family: inherit;
   font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -65,12 +64,31 @@
     transform 0.16s var(--ease-out);
 }
 
+.nameButton {
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    opacity 0.16s var(--ease-out),
+    transform 0.16s var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.nameButton:hover {
+  background: var(--color-bg-muted);
+}
+
 .pips {
   display: flex;
   align-items: center;
+  /* Centred under the strip — the pips read as a position indicator for the
+     whole rail, not a left-aligned list item. */
+  justify-content: center;
   gap: 5px;
   height: 16px;
-  padding-left: 6px;
 }
 
 .pip {
@@ -123,6 +141,7 @@
    Sidebar.module.css and isn't reachable from here. */
 @media (hover: hover) {
   :global([data-rail]):hover .name,
+  :global([data-rail]):hover .nameButton,
   :global([data-rail]):hover .addPip {
     opacity: 1;
     transform: none;
@@ -132,6 +151,7 @@
 @media (prefers-reduced-motion: reduce) {
   .strip,
   .name,
+  .nameButton,
   .pip,
   .addPip {
     transition: none;

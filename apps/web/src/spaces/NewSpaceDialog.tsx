@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useCourses } from '../hooks/useCourses'
-import { useSpaces } from './useSpaces'
+import { useSpaces, SPACE_BACKGROUNDS } from './useSpaces'
 import { useSpaceStore } from './spaceStore'
 import styles from './NewSpaceDialog.module.css'
 
@@ -19,6 +19,7 @@ export default function NewSpaceDialog({ onClose }: { onClose: () => void }) {
 
   const [name, setName] = useState('')
   const [courseId, setCourseId] = useState<string>('all')
+  const [background, setBackground] = useState<string>('sage')
   // Once the student types a name, stop overwriting it with the course label.
   const [nameTouched, setNameTouched] = useState(false)
 
@@ -47,7 +48,7 @@ export default function NewSpaceDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    createSpace(trimmed, courseId === 'all' ? null : courseId)
+    createSpace(trimmed, courseId === 'all' ? null : courseId, background)
     onClose()
   }
 
@@ -98,6 +99,27 @@ export default function NewSpaceDialog({ onClose }: { onClose: () => void }) {
             maxLength={32}
           />
         </label>
+
+        <div className={styles.field}>
+          <span className={styles.label}>Background</span>
+          <div className={styles.swatches}>
+            {SPACE_BACKGROUNDS.map(bg => (
+              <button
+                key={bg.id}
+                type="button"
+                className={[
+                  styles.swatch,
+                  background === bg.id ? styles.swatchActive : '',
+                ].join(' ')}
+                style={{ background: bg.tint === 'transparent' ? 'var(--base)' : bg.tint }}
+                onClick={() => setBackground(bg.id)}
+                aria-label={bg.label}
+                aria-pressed={background === bg.id}
+                title={bg.label}
+              />
+            ))}
+          </div>
+        </div>
 
         <div className={styles.actions}>
           <button type="button" className={styles.cancel} onClick={onClose}>

@@ -1,0 +1,97 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-menu, 60);
+}
+
+/* Fixed so it escapes the rail's overflow:hidden, anchored just under the
+   switcher block. Mirrors the account menu's placement in Sidebar.module.css. */
+.menu {
+  position: fixed;
+  left: 12px;
+  top: 108px;
+  z-index: calc(var(--z-menu, 60) + 1);
+  width: 208px;
+  padding: 10px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: menuIn 0.14s var(--ease-out);
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.heading {
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-badge);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.swatch:hover {
+  transform: scale(1.08);
+}
+
+.swatchActive {
+  /* Ring rather than a border swap, so the swatch's own colour stays the
+     full size of the chip and selection reads at a glance. */
+  box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 3px var(--color-text);
+}
+
+.destructive {
+  width: 100%;
+  margin-top: var(--space-md);
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-error);
+  font-size: var(--text-label);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.destructive:hover {
+  background: var(--color-error-bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    animation: none;
+  }
+  .swatch {
+    transition: none;
+  }
+}

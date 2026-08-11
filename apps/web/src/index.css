@@ -52,10 +52,19 @@
   --color-text: var(--text);
   --color-text-secondary: var(--text2);
   --color-text-muted: var(--muted-ink);
-  --color-bg-page: var(--base);
-  --color-bg-surface: var(--card);
-  --color-bg-sidebar: var(--base2);
-  --color-bg-muted: var(--base2);
+
+  /* Space background wash. The tint is MIXED INTO the warm-paper surfaces at a
+     low percentage rather than replacing them, so every text/border token keeps
+     its contrast and only the mood changes. 'transparent' at any percentage
+     leaves the base exactly as it was, which is how "Paper" works. */
+  --space-tint: transparent;
+  --space-tint-amount: 12%;
+  --muted-base: var(--base2);
+
+  --color-bg-page: color-mix(in srgb, var(--space-tint) var(--space-tint-amount), var(--base));
+  --color-bg-surface: color-mix(in srgb, var(--space-tint) calc(var(--space-tint-amount) / 2), var(--card));
+  --color-bg-sidebar: color-mix(in srgb, var(--space-tint) var(--space-tint-amount), var(--base2));
+  --color-bg-muted: color-mix(in srgb, var(--space-tint) var(--space-tint-amount), var(--muted-base));
   --color-bg-selected: color-mix(in srgb, var(--space-bright) 9%, var(--card));
   --color-border: var(--border);
   --color-border-hover: var(--text3);
@@ -142,10 +151,11 @@
   --color-text: var(--text);
   --color-text-secondary: var(--text2);
   --color-text-muted: #8f8b99;
-  --color-bg-page: var(--base);
-  --color-bg-surface: var(--card);
-  --color-bg-sidebar: var(--base2);
-  --color-bg-muted: #26232b;
+
+  /* A tint reads stronger against a dark surface than a light one, so dark mode
+     takes a lighter hand. The mixes themselves are inherited from :root. */
+  --space-tint-amount: 9%;
+  --muted-base: #26232b;
   --color-bg-selected: color-mix(in srgb, var(--space-bright) 16%, var(--card));
   --color-border: var(--border);
   --color-border-hover: #4a4753;
