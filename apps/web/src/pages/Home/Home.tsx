@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useTasks, getNextBlock, TaskWithBlocks } from '../../hooks/useTasks'
 import RumboMark from '../../components/RumboMark/RumboMark'
-import { SendIcon } from '../../components/icons/Icons'
+import { SendIcon, HistoryIcon } from '../../components/icons/Icons'
 import Markdown from '../../components/Markdown/Markdown'
 import ChatHistory from '../../chat/ChatHistory'
 import { streamTutor } from '../../chat/streamTutor'
@@ -245,6 +245,26 @@ export default function Home() {
     }
   }
 
+  const topBar = (
+    <div className={styles.topBar}>
+      <button
+        type="button"
+        className={styles.iconTextButton}
+        onClick={() => setChatsOpen(true)}
+        aria-label="Past chats"
+        title="Past chats"
+      >
+        <HistoryIcon size={16} />
+        <span className={styles.iconTextLabel}>Past chats</span>
+      </button>
+      {active && (
+        <button type="button" className={styles.barButton} onClick={newChat} disabled={busy}>
+          New chat
+        </button>
+      )}
+    </div>
+  )
+
   const composer = (
     <form className={styles.composer} onSubmit={onSubmit}>
       <textarea
@@ -271,6 +291,7 @@ export default function Home() {
   if (!active) {
     return (
       <div className={styles.hero}>
+        {topBar}
         <div className={styles.heroInner}>
           <RumboMark size={92} variant="radiate" hubR={6} className={styles.heroMark} />
           <h1 className={styles.greeting}>
@@ -278,9 +299,6 @@ export default function Home() {
           </h1>
           <p className={styles.subtitle}>What are you working on today?</p>
           {composer}
-          <button type="button" className={styles.heroPastChats} onClick={() => setChatsOpen(true)}>
-            Past chats
-          </button>
           <div className={styles.quick}>
             {suggestions.map(s => (
               <button key={s.label} className={styles.tile} onClick={() => send(s.prompt)} type="button">
@@ -296,16 +314,7 @@ export default function Home() {
 
   return (
     <div className={styles.chat}>
-      <div className={styles.chatBar}>
-        <div className={styles.chatBarInner}>
-          <button type="button" className={styles.barButton} onClick={() => setChatsOpen(true)}>
-            Past chats
-          </button>
-          <button type="button" className={styles.barButton} onClick={newChat} disabled={busy}>
-            New chat
-          </button>
-        </div>
-      </div>
+      {topBar}
 
       <div className={styles.thread} ref={scrollRef}>
         <div className={styles.threadInner}>

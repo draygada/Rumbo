@@ -64,6 +64,39 @@ export function TasksIcon(p: IconProps) {
 }
 
 /** Courses — stacked spaces */
+/* Past chats — the node cluster (Rumbo's "brain") wrapped in a history arc, so
+   the affordance reads as "everything Rumbo remembers" rather than a generic
+   clock. Distinct from BrainIcon, which is the graph destination in the rail. */
+export function HistoryIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="6.4" r="1.1" />
+      <circle cx="16.8" cy="14.6" r="1.1" />
+      <circle cx="7.2" cy="14.6" r="1.1" />
+      <path d="M12 10.2V7.5M13 12.9l2.9 1.1M11 12.9l-2.9 1.1" />
+      <path d="M20 12a8 8 0 1 1-2.6-5.9" />
+      <path d="M17.6 2.9v3.4h-3.4" />
+    </Svg>
+  )
+}
+
+export function ExpandIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" />
+    </Svg>
+  )
+}
+
+export function CollapseIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5" />
+    </Svg>
+  )
+}
+
 /* Brain — the knowledge graph itself: a hub with linked satellites, echoing
    RumboMark's node language. */
 export function BrainIcon(p: IconProps) {

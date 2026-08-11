@@ -1,9 +1,19 @@
+import { useState } from 'react';
 import { useChatStore, useChatList } from './chatStore';
+import { ExpandIcon, CollapseIcon } from '../components/icons/Icons';
 import styles from './ChatHistory.module.css';
 
 interface ChatHistoryProps {
   open: boolean;
   onClose: () => void;
+}
+
+/** First user message, used as a one-line preview in the expanded view. */
+function previewOf(messages: { role: string; text: string }[]): string {
+  const firstUser = messages.find((m) => m.role === 'user');
+  const firstReply = messages.find((m) => m.role === 'assistant');
+  const text = firstReply?.text ?? firstUser?.text ?? '';
+  return text.replace(/[#*`>_]/g, '').replace(/\s+/g, ' ').trim().slice(0, 140);
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -43,6 +53,8 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 export default function ChatHistory({ open, onClose }: ChatHistoryProps) {
+  // Drawer by default; expanded takes over the whole content area (Claude-style).
+  const [expanded, setExpanded] = useState(false);
   const chats = useChatList();
   const loadChat = useChatStore((s) => s.loadChat);
   const deleteChat = useChatStore((s) => s.deleteChat);
@@ -66,24 +78,35 @@ export default function ChatHistory({ open, onClose }: ChatHistoryProps) {
   };
 
   return (
-    <div className={styles.overlay}>
+    <div className={[styles.overlay, expanded ? styles.overlayExpanded : ''].join(' ')}>
       <div className={styles.backdrop} onClick={onClose} aria-hidden="true" />
       <aside
-        className={styles.drawer}
+        className={[styles.drawer, expanded ? styles.drawerExpanded : ''].join(' ')}
         role="dialog"
         aria-modal="true"
         aria-label="Your chats"
       >
         <header className={styles.header}>
           <h2 className={styles.headerTitle}>Your chats</h2>
-          <button
-            type="button"
-            className={styles.closeButton}
-            onClick={onClose}
-            aria-label="Close chat history"
-          >
-            ×
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.iconButton}
+              onClick={() => setExpanded((v) => !v)}
+              aria-label={expanded ? 'Collapse to side panel' : 'Expand to full screen'}
+              title={expanded ? 'Collapse' : 'Expand'}
+            >
+              {expanded ? <CollapseIcon size={16} /> : <ExpandIcon size={16} />}
+            </button>
+            <button
+              type="button"
+              className={styles.closeButton}
+              onClick={onClose}
+              aria-label="Close chat history"
+            >
+              ×
+            </button>
+          </div>
         </header>
 
         <button type="button" className={styles.newChatButton} onClick={handleNewChat}>
@@ -117,7 +140,19 @@ export default function ChatHistory({ open, onClose }: ChatHistoryProps) {
                       </span>
                       <span className={styles.rowTime}>
                         {formatRelativeTime(chat.updatedAt)}
+                        {expanded && chat.messages.length > 0 && (
+                          <span className={styles.rowCount}>
+                            {' · '}
+                            {chat.messages.filter((m) => m.role === 'user').length}
+                            {chat.messages.filter((m) => m.role === 'user').length === 1
+                              ? ' message'
+                              : ' messages'}
+                          </span>
+                        )}
                       </span>
+                      {expanded && (
+                        <span className={styles.rowPreview}>{previewOf(chat.messages)}</span>
+                      )}
                     </div>
                     <button
                       type="button"

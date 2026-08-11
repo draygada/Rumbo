@@ -254,19 +254,43 @@
    Chat controls + evidence disclosure (Home is now the single chat surface).
    --------------------------------------------------------------------------- */
 
-.chatBar {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-page);
+/* One control cluster, pinned top-right in both the hero and the conversation
+   so the affordance never moves. */
+.topBar {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-lg);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }
 
-.chatBarInner {
-  max-width: 760px;
-  margin-inline: auto;
-  padding: var(--space-sm) var(--space-lg);
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-sm);
+.iconTextButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--color-bg-surface) 82%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.iconTextButton:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-hover);
+}
+
+/* Icon-only under 640px — the label is redundant once space is tight. */
+@media (max-width: 640px) {
+  .iconTextLabel { display: none; }
 }
 
 .barButton {
@@ -289,20 +313,6 @@
 
 .barButton:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* Quiet link under the hero composer, so history is reachable before the
-   first message too. */
-.heroPastChats {
-  margin-top: var(--space-md);
-  padding: 4px 8px;
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  font-size: var(--text-caption);
-  cursor: pointer;
-  transition: color var(--duration-fast) var(--ease-out);
-}
-
-.heroPastChats:hover { color: var(--color-text-secondary); }
 
 .errorText {
   color: var(--color-error);

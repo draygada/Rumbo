@@ -142,7 +142,10 @@
   --color-bg-selected: color-mix(in srgb, var(--terra) 16%, var(--card));
   --color-border: var(--border);
   --color-border-hover: #4a4753;
-  --color-on-primary: #f6f5f2;
+  /* Primary buttons invert in dark mode (light fill), so their label must be
+     DARK. Setting this light made every primary button render as a blank
+     light bar with invisible text. */
+  --color-on-primary: var(--base);
 
   --color-primary: var(--oninv);
   --color-primary-hover: #d7d3cc;
