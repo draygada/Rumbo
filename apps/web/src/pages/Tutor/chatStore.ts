@@ -54,6 +54,7 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { useShallow } from 'zustand/react/shallow'
 
 // -----------------------------------------------------------------------------
 // Shared message types — these MUST match Tutor.tsx exactly. Import them from
@@ -221,8 +222,14 @@ export function useActiveChat(): SavedChat | null {
 }
 
 // All saved chats, most-recently-updated first.
+// useShallow: the sort() produces a new array every call, which would make
+// useSyncExternalStore see a "changed" snapshot on every render and loop
+// forever. Shallow-comparing the elements lets zustand reuse the previous
+// array reference when the underlying chats are unchanged.
 export function useChatList(): SavedChat[] {
-  return useChatStore((state) =>
-    [...state.chats].sort((a, b) => b.updatedAt - a.updatedAt),
+  return useChatStore(
+    useShallow((state) =>
+      [...state.chats].sort((a, b) => b.updatedAt - a.updatedAt),
+    ),
   )
 }
