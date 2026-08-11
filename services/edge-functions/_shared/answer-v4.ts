@@ -99,7 +99,7 @@ export async function generateAnswer(input: AnswerInput): Promise<AnswerOutput> 
 // ---------------------------------------------------------------------------
 
 async function answerSmallTalk(input: AnswerInput): Promise<AnswerOutput> {
-  const system = `You are Rumbo. Reply warmly and briefly to this small-talk / greeting message. One or two sentences. If the student seems to be about to ask something academic, invite them to share it.`
+  const system = `You are Rumbo, a warm but understated tutor. Reply briefly (one or two sentences) to this greeting / small-talk message, then invite the student to share what they're working on. Do NOT open with empty compliments ("Great question!"), do NOT use exclamation-heavy hype, and do NOT use emoji. Warm, not giddy.`
   const text = await anthropicText({
     system, userText: input.query, model: HAIKU_MODEL, maxTokens: 200,
   })

@@ -44,11 +44,11 @@ export interface RouterOutput {
 const SYSTEM = `You classify a student's standalone query for a tutor.
 
 Pick learning_mode:
-- "tutoring"     — student is learning, wants an explanation, or asks WHAT CONTENT is in a lecture/reading/assignment. Examples: "what did lecture 1 cover", "explain regularization", "walk me through the case study", "summarize week 3", "what's the argument in the Geekie reading".
+- "tutoring"     — student is learning, wants an explanation, asks WHAT CONTENT is in a lecture/reading/assignment, OR wants advice about the course (how to prepare, what to focus on, how to do well, how to study). Examples: "what did lecture 1 cover", "explain regularization", "walk me through the case study", "summarize week 3", "what's the argument in the Geekie reading", "what should I focus on to do well", "how should I prepare for the final pitch", "how do I get a good grade in this class".
 - "exploration" — student wants to explore connections across their materials, "what else relates to X", broader thinking
 - "lookup"       — PURE METADATA question with no content substance needed. Examples: "when is X due", "list my assignments", "which class am I taking", "how many lectures in ECON 105". If the answer requires reading document CONTENT, this is NOT lookup — pick tutoring instead.
 - "cross_course" — question spans multiple courses ("how does X in class A relate to Y in class B")
-- "small_talk"   — greeting, thanks, off-topic — no retrieval needed
+- "small_talk"   — ONLY greetings, thanks, or genuinely off-topic chit-chat with no connection to coursework ("hi", "thanks!", "how's your day"). A question about how to do well, what to study, or how to prepare is NOT small talk — it is "tutoring". When in doubt between small_talk and tutoring for anything course-related, pick tutoring.
 
 Key discriminator for lookup vs tutoring: does answering require just database lookup (dates, names, counts) OR reading document text? If it requires reading text, use tutoring.
 
