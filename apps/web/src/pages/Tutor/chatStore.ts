@@ -101,12 +101,31 @@ interface ChatStoreState {
   chats: SavedChat[]
   activeChatId: string | null
 
+  // In-flight streaming answer. Lives in the store (NOT persisted) so an
+  // answer keeps streaming — and commits — even if the Tutor page unmounts
+  // (e.g. the student tabs to Brain). Any mounted Tutor reads it live.
+  streaming: { chatId: string; text: string } | null
+
   appendMessage: (msg: ChatMessage) => void
+  // Append to a SPECIFIC chat (used to commit a streamed answer to the chat
+  // that started it, even if the active chat has since changed).
+  appendMessageToChat: (chatId: string, msg: ChatMessage) => void
   setConversationId: (id: string) => void
   newChat: () => void
   loadChat: (id: string) => void
   deleteChat: (id: string) => void
+
+  // Streaming lifecycle (see send() in Tutor.tsx).
+  startStreaming: (chatId: string, abort: AbortController) => void
+  appendStreamDelta: (delta: string) => void
+  // Scoped by chatId so a stale/aborted turn can't clear a newer stream.
+  endStreaming: (chatId: string) => void
+  stopStreaming: () => void
 }
+
+// Module-level abort handle for the current stream — kept outside the store so
+// it's never serialized, and reachable from stopStreaming()/New chat.
+let activeAbort: AbortController | null = null
 
 // Placeholder used for a chat that has no meaningful title yet. A chat starts
 // with this and gets a real title from its first user message.
@@ -132,6 +151,7 @@ export const useChatStore = create<ChatStoreState>()(
     (set) => ({
       chats: [],
       activeChatId: null,
+      streaming: null,
 
       appendMessage: (msg) =>
         set((state) => {
@@ -178,6 +198,20 @@ export const useChatStore = create<ChatStoreState>()(
           return { chats: nextChats, activeChatId }
         }),
 
+      appendMessageToChat: (chatId, msg) =>
+        set((state) => ({
+          chats: state.chats.map((chat) => {
+            if (chat.id !== chatId) return chat
+            const isFirstUserMessage =
+              msg.role === 'user' && !chat.messages.some((m) => m.role === 'user')
+            const titleIsPlaceholder =
+              chat.title.trim().length === 0 || chat.title === UNTITLED
+            const title =
+              isFirstUserMessage && titleIsPlaceholder ? deriveTitle(msg.text) : chat.title
+            return { ...chat, title, updatedAt: Date.now(), messages: [...chat.messages, msg] }
+          }),
+        })),
+
       setConversationId: (id) =>
         set((state) => {
           if (state.activeChatId === null) return state
@@ -202,9 +236,41 @@ export const useChatStore = create<ChatStoreState>()(
           activeChatId:
             state.activeChatId === id ? null : state.activeChatId,
         })),
+
+      startStreaming: (chatId, abort) => {
+        // Only one stream at a time — cancel any prior in-flight one.
+        activeAbort?.abort()
+        activeAbort = abort
+        set({ streaming: { chatId, text: '' } })
+      },
+
+      appendStreamDelta: (delta) =>
+        set((state) =>
+          state.streaming
+            ? { streaming: { ...state.streaming, text: state.streaming.text + delta } }
+            : state,
+        ),
+
+      endStreaming: (chatId) =>
+        set((state) => {
+          // No-op if a newer stream has taken over.
+          if (state.streaming?.chatId !== chatId) return state
+          activeAbort = null
+          return { streaming: null }
+        }),
+
+      // Explicit stop (New chat): abort the in-flight fetch and clear the draft.
+      stopStreaming: () => {
+        activeAbort?.abort()
+        activeAbort = null
+        set({ streaming: null })
+      },
     }),
     {
       name: 'rumbo-tutor-chats',
+      // Never persist the live streaming draft — token updates would thrash
+      // localStorage, and a half-streamed answer must not survive a reload.
+      partialize: (state) => ({ chats: state.chats, activeChatId: state.activeChatId }),
     },
   ),
 )
@@ -218,6 +284,18 @@ export function useActiveChat(): SavedChat | null {
   return useChatStore(
     (state) =>
       state.chats.find((chat) => chat.id === state.activeChatId) ?? null,
+  )
+}
+
+// Live streaming text for the ACTIVE chat, or null when the active chat isn't
+// streaming. Returns a primitive (string | null), so it's snapshot-stable
+// without useShallow. When a stream belongs to a different (background) chat,
+// the active view shows null — it keeps running and commits regardless.
+export function useActiveStreamText(): string | null {
+  return useChatStore((state) =>
+    state.streaming && state.streaming.chatId === state.activeChatId
+      ? state.streaming.text
+      : null,
   )
 }
 

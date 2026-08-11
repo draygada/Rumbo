@@ -6,6 +6,7 @@ import { streamTutor } from './streamTutor'
 import {
   useChatStore,
   useActiveChat,
+  useActiveStreamText,
   type ChatMessage,
   type TutorMode,
   type TutorSource,
@@ -126,21 +127,23 @@ export default function Tutor() {
   // committed to the store) so we don't write to localStorage on every token.
   const activeChat = useActiveChat()
   const messages: ChatMessage[] = activeChat?.messages ?? []
+  // Streaming state lives in the store, so an answer keeps streaming and
+  // commits even if this page unmounts (student tabs to Brain and back).
+  const streamText = useActiveStreamText()
   const appendMessage = useChatStore(s => s.appendMessage)
+  const appendMessageToChat = useChatStore(s => s.appendMessageToChat)
   const newChatStore = useChatStore(s => s.newChat)
+  const startStreaming = useChatStore(s => s.startStreaming)
+  const appendStreamDelta = useChatStore(s => s.appendStreamDelta)
+  const endStreaming = useChatStore(s => s.endStreaming)
+  const stopStreaming = useChatStore(s => s.stopStreaming)
 
   const [input, setInput] = useState('')
-  const [streamText, setStreamText] = useState<string | null>(null) // null = idle
   const [chatsOpen, setChatsOpen] = useState(false)
 
   const busy = streamText !== null
-  const metaRef = useRef<{ learning_mode: string; sources: V4Source[]; session_id: string | null } | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-
-  // Cancel any in-flight stream when the page unmounts (tab switch mid-answer).
-  useEffect(() => () => abortRef.current?.abort(), [])
 
   // Auto-scroll on new message / streaming token.
   useEffect(() => {
@@ -157,19 +160,23 @@ export default function Tutor() {
       return
     }
 
+    // Append the user message (creates a fresh active chat if needed).
     appendMessage({ role: 'user', id: makeId(), text: question })
     setInput('')
-    setStreamText('')
-    metaRef.current = null
 
-    // Read the active conversation id AFTER appending (a brand-new chat was just
-    // created with a null conversation id; a continued chat keeps its id).
+    // Capture the chat that OWNS this turn, plus its conversation id, AFTER
+    // appending. The streamed answer commits to this chat even if the student
+    // starts a new chat (or navigates away) before it finishes.
     const st = useChatStore.getState()
     const active = st.chats.find(c => c.id === st.activeChatId) ?? null
+    const chatId = active?.id
+    if (!chatId) return
     const conversationId = active?.conversationId ?? null
 
     const controller = new AbortController()
-    abortRef.current = controller
+    startStreaming(chatId, controller)
+    let meta: { learning_mode: string; sources: V4Source[]; session_id: string | null } | null = null
+    let settled = false
 
     try {
       await streamTutor({
@@ -178,21 +185,22 @@ export default function Tutor() {
         conversationId,
         signal: controller.signal,
         onMeta: m => {
-          metaRef.current = m
+          meta = m
           if (!conversationId && m.session_id) {
             useChatStore.getState().setConversationId(m.session_id)
           }
         },
-        onToken: delta => setStreamText(prev => (prev ?? '') + delta),
+        onToken: delta => appendStreamDelta(delta),
         onDone: ({ answer }) => {
-          const meta = metaRef.current
+          if (settled) return
+          settled = true
           const mode = mapV4ModeToUI((meta?.learning_mode ?? 'tutoring') as V4LearningMode)
           const uiSources = (meta?.sources ?? []).map(mapV4Source)
           const confidence = confidenceFromV4(
             meta?.sources ?? [],
             (meta?.learning_mode ?? 'tutoring') as V4LearningMode,
           )
-          appendMessage({
+          appendMessageToChat(chatId, {
             role: 'assistant',
             id: makeId(),
             text: answer,
@@ -201,22 +209,30 @@ export default function Tutor() {
             sources: uiSources,
             turnId: null,
           })
-          setStreamText(null)
+          endStreaming(chatId)
         },
         onError: e => {
-          appendMessage({ role: 'error', id: makeId(), text: e })
-          setStreamText(null)
+          if (settled) return
+          settled = true
+          appendMessageToChat(chatId, { role: 'error', id: makeId(), text: e })
+          endStreaming(chatId)
         },
       })
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Something went wrong.'
-      appendMessage({ role: 'error', id: makeId(), text: msg })
-      setStreamText(null)
+      // AbortError is expected when the student presses New chat mid-answer.
+      if (!settled) {
+        settled = true
+        const aborted = err instanceof DOMException && err.name === 'AbortError'
+        if (!aborted) {
+          const msg = err instanceof Error ? err.message : 'Something went wrong.'
+          appendMessageToChat(chatId, { role: 'error', id: makeId(), text: msg })
+        }
+        endStreaming(chatId)
+      }
     } finally {
-      abortRef.current = null
       textareaRef.current?.focus()
     }
-  }, [input, busy, userId, appendMessage])
+  }, [input, busy, userId, appendMessage, appendMessageToChat, startStreaming, appendStreamDelta, endStreaming])
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Cmd/Ctrl+Enter sends. Plain Enter inserts a newline.
@@ -227,9 +243,8 @@ export default function Tutor() {
   }
 
   function newChat() {
-    abortRef.current?.abort()
-    abortRef.current = null
-    setStreamText(null)
+    // Explicit stop: abort any in-flight stream, then detach the active chat.
+    stopStreaming()
     newChatStore()
     setInput('')
     setChatsOpen(false)
