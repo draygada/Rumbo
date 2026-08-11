@@ -1,9 +1,15 @@
 .overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
+  /* Docked by default: a real column in the shell's flex row, sitting to the
+     RIGHT of the chat. Not fixed/inset — the app stays visible and usable.
+     See .overlayExpanded for the full-takeover mode. */
+  position: relative;
+  flex: 0 0 320px;
+  width: 320px;
+  height: 100%;
+  min-height: 0;
   display: flex;
-  justify-content: flex-end;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
 }
 
 .backdrop {
@@ -288,4 +294,46 @@
 
 .rowCount {
   color: var(--color-text-muted);
+}
+
+
+/* --- Docked vs expanded ---------------------------------------------------- */
+
+/* Docked: no backdrop at all (the app stays interactive), and the drawer fills
+   its column instead of floating above the page. */
+.overlay:not(.overlayExpanded) .backdrop {
+  display: none;
+}
+
+.overlay:not(.overlayExpanded) .drawer {
+  position: static;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border-left: none;
+  box-shadow: none;
+}
+
+/* Expanded: leave the column and take over the whole content area. */
+.overlayExpanded {
+  position: absolute;
+  inset: 0;
+  flex: none;
+  width: auto;
+  border-left: none;
+  z-index: 20;
+  background: var(--color-bg-page);
+}
+
+@media (max-width: 900px) {
+  /* Not enough room to dock beside the chat — float above it instead. */
+  .overlay:not(.overlayExpanded) {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 20;
+    box-shadow: var(--shadow-lg);
+  }
+  .overlay:not(.overlayExpanded) .backdrop {
+    display: block;
+  }
 }

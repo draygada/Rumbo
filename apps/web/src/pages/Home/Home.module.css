@@ -1,5 +1,6 @@
 /* ─── Hero (empty) state ─────────────────────────────────────────────── */
 .hero {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,6 +138,9 @@
 
 /* ─── Chat (active) state ────────────────────────────────────────────── */
 .chat {
+  /* Positioning context for the absolute top-right control cluster, so it
+     stays inside the chat column instead of spanning the docked panel. */
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -385,4 +389,31 @@
   .sourcesChevron { transition: none; }
   .streamingBody { animation: none; }
   .streamingBody::after { animation: none; opacity: 1; }
+}
+
+/* ---------------------------------------------------------------------------
+   Two-column shell: the chat column and the history panel sit side by side.
+   The panel docks (taking real layout width) rather than overlaying, so the
+   conversation stays visible and usable while browsing past chats.
+   --------------------------------------------------------------------------- */
+.shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The chat column absorbs the remaining width and re-centres itself as the
+   panel opens/closes. min-width:0 lets it actually shrink inside the flex row. */
+.shell > .hero,
+.shell > .chat {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The docked panel scrolls independently; the chat column must be allowed to
+   shrink rather than push the panel off-screen. */
+.chat,
+.hero {
+  overflow: hidden;
 }

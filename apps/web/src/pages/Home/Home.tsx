@@ -290,7 +290,8 @@ export default function Home() {
 
   if (!active) {
     return (
-      <div className={styles.hero}>
+      <div className={styles.shell}>
+        <div className={styles.hero}>
         {topBar}
         <div className={styles.heroInner}>
           <RumboMark size={92} variant="radiate" hubR={6} className={styles.heroMark} />
@@ -307,13 +308,15 @@ export default function Home() {
             ))}
           </div>
         </div>
+        </div>
         <ChatHistory open={chatsOpen} onClose={() => setChatsOpen(false)} />
       </div>
     )
   }
 
   return (
-    <div className={styles.chat}>
+    <div className={styles.shell}>
+      <div className={styles.chat}>
       {topBar}
 
       <div className={styles.thread} ref={scrollRef}>
@@ -393,6 +396,7 @@ export default function Home() {
 
       <div className={styles.dock}>
         <div className={styles.dockInner}>{composer}</div>
+      </div>
       </div>
 
       <ChatHistory open={chatsOpen} onClose={() => setChatsOpen(false)} />
