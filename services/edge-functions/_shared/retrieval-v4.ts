@@ -149,27 +149,30 @@ export async function retrieveV4(
     ? reranked.map(r => ({ ...fused[r.index], rerank_score: r.relevance_score }))
     : fused.slice(0, RERANK_TOP_N).map(f => ({ ...f, rerank_score: null }))
 
-  // Stage 7: small-to-big truncation — hydrate body_text per source
-  const sources: RetrievedSource[] = []
-  for (const hit of topHits) {
-    const body = await hydrateBody(g, hit, req.userId)
-    sources.push({
-      source_id: hit.source_id,
-      source_type: hit.source_type,
-      source_label: hit.source_label,
-      parent_id: hit.parent_id ?? null,
-      title: hit.title,
-      course_code: hit.course_code,
-      course_name: hit.course_name,
-      slide_or_section: hit.slide_or_section,
-      chunk_text: hit.chunk_text,
-      body_text: body,
-      covers_definition: hit.covers_definition,
-      covers_excerpt: hit.covers_excerpt,
-      rrf_score: hit.rrf_score,
-      rerank_score: hit.rerank_score ?? null,
-    })
-  }
+  // Stage 7: small-to-big truncation — hydrate body_text per source.
+  // Hydrate all hits concurrently: this was the dominant latency cost (one
+  // sequential Neo4j round-trip per hit × up to RERANK_TOP_N hits).
+  const sources: RetrievedSource[] = await Promise.all(
+    topHits.map(async (hit): Promise<RetrievedSource> => {
+      const body = await hydrateBody(g, hit, req.userId)
+      return {
+        source_id: hit.source_id,
+        source_type: hit.source_type,
+        source_label: hit.source_label,
+        parent_id: hit.parent_id ?? null,
+        title: hit.title,
+        course_code: hit.course_code,
+        course_name: hit.course_name,
+        slide_or_section: hit.slide_or_section,
+        chunk_text: hit.chunk_text,
+        body_text: body,
+        covers_definition: hit.covers_definition,
+        covers_excerpt: hit.covers_excerpt,
+        rrf_score: hit.rrf_score,
+        rerank_score: hit.rerank_score ?? null,
+      }
+    }),
+  )
 
   return {
     sources,
@@ -331,8 +334,9 @@ async function laneA_BM25(
     : strict
       ? 'AND (node.course_id IN $codes OR EXISTS { MATCH (pp)-[:HAS_CHUNK]->(node) WHERE pp.course_id IN $codes })'
       : 'AND (node.course_id IS NULL OR node.course_id IN $codes)'
-  const hits: FanOutHit[] = []
-  for (const idx of FULLTEXT_INDEXES) {
+  // Fire all fulltext indexes concurrently rather than one Neo4j round-trip
+  // at a time.
+  const perIndex = await Promise.all(FULLTEXT_INDEXES.map(async (idx): Promise<FanOutHit[]> => {
     try {
       const rows = await g.run(
         `CALL db.index.fulltext.queryNodes($idx, $q) YIELD node, score
@@ -351,10 +355,10 @@ async function laneA_BM25(
                 c.code AS course_code, c.name AS course_name, score`,
         { idx, q: req.query, userId: req.userId, codes: courseCodes },
       )
-      for (const r of rows) {
+      return rows.map((r): FanOutHit => {
         const label = (r.label as string) ?? 'Node'
         const isChunk = label === 'Chunk'
-        hits.push({
+        return {
           source_id: (r.id as string) ?? '',
           source_type: label.toLowerCase(),
           source_label: label,
@@ -366,13 +370,14 @@ async function laneA_BM25(
           chunk_text: (isChunk ? r.chunk_text : r.body)?.toString().slice(0, 2500) ?? '',
           rrf_score: 0,
           lane_scores: { bm25: Number(r.score ?? 0) },
-        })
-      }
+        }
+      })
     } catch (err) {
       console.warn(`[retrieval-v4] BM25 ${idx} failed:`, err)
+      return []
     }
-  }
-  return hits
+  }))
+  return perIndex.flat()
 }
 
 async function laneA_Vector(
