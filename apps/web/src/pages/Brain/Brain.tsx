@@ -106,33 +106,33 @@ const FILTER_TYPES: NodeType[] = ['assignment', 'file', 'syllabus', 'course', 'e
 // off at distance so far-apart clusters stop pushing each other into infinity.
 // Warm-start is 0 to avoid the "1000 iterations then explode" divergence that
 // happens when initial forces overshoot.
-const REPULSION = 3400
-const SPRING = 0.018
-const SPRING_LENGTH = 180             // longer edges = more breathing room
-const DAMPING = 0.88
-const CENTER = 0.002                  // very weak — course-cohesion + repulsion do the work
+// Tuned 2026-07-19 for a near-static layout with a whisper of repulsion.
+// Course spiral seeds do the heavy layout work; physics only nudges nodes
+// apart so they don't sit on top of each other. Drag remains fully live.
+// Initial seed is now spread wide enough that no physics correction is
+// needed on load. Physics still runs for drag, but each force is near-zero
+// so nodes just gently re-settle after a drag rather than shifting on load.
+const REPULSION = 150                 // near-zero — only nudges on drag overlap
+const SPRING = 0.001                  // barely any pull along edges
+const SPRING_LENGTH = 240
+const DAMPING = 0.95                  // aggressive settle
+const CENTER = 0                      // no centre pull whatsoever
 const MIN_DIST_SQ = 0.5
-const REPULSION_MAX_DIST_SQ = 250000  // ~500px reach
-const MAX_VELOCITY = 10
-const INITIAL_WARM_STEPS = 0          // let the raf loop settle live from spiral
-// Nodes without a courseId get pushed OUT to a periphery ring rather than
-// piling up at origin where CENTER pulls everything. Otherwise they form
-// an oscillating central blob that never settles.
-const ORPHAN_RING_RADIUS = 700
-const ORPHAN_RING_PULL = 0.008
+const REPULSION_MAX_DIST_SQ = 90000   // ~300px reach — only immediate neighbours interact
+const MAX_VELOCITY = 3
+// Pre-run physics N steps BEFORE first paint so any tiny corrections finish
+// offscreen; user sees a settled layout, not a moving one.
+const INITIAL_WARM_STEPS = 40
+const ORPHAN_RING_RADIUS = 1800       // pushed way out
+const ORPHAN_RING_PULL = 0.001
 
-// Minimum center-to-center separation between any two nodes (independent of
-// physics). Enforced as a positional resolve after each step — even if a spring
-// wants to pull two nodes on top of each other, we push them back to this gap.
-const MIN_NODE_SEPARATION = 22
+// Minimum center-to-center separation. Guards against overlap during drag
+// without adding meaningful motion on load.
+const MIN_NODE_SEPARATION = 30
 const MIN_NODE_SEPARATION_SQ = MIN_NODE_SEPARATION * MIN_NODE_SEPARATION
-// Course cohesion pulls same-course nodes together, but too strong and it
-// swamps cross-class concept bridges. 0.005 keeps clusters visible without
-// squeezing every node onto its centroid.
-const COURSE_COHESION = 0.02   // was 0.005 — tighter clusters, more inter-cluster space
-// Cross-class concept bridges get a bigger spring so they visibly draw the
-// two clusters together instead of being dragged back into their own courses.
-const CROSS_CLASS_SPRING_BOOST = 2.2
+// Very light course cohesion — enough for drag snap-back, not enough to
+// move anything on initial load.
+const COURSE_COHESION = 0.0008
 // A token appearing in > this fraction of nodes is generic and won't carry
 // signal ("assignment", "reading", "week"). Ignored entirely.
 const GENERIC_CONCEPT_MAX_FREQ = 0.20   // tighter — was 0.35, too permissive at 400 nodes
@@ -263,9 +263,20 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
   // brain-graph-read Edge Function (Phase 4 rewire). Source records still
   // live in Postgres — that's per Infrastructure/neo4j.md: normalized_events
   // is the source of truth.
+  // v4 response shape: concepts carry pedagogical tags; hierarchy is
+  // concept → parent-concept edges written by the reasoning layer.
   const brainReadPromise = supabase.functions.invoke<{
-    concepts: Array<{ id: string; name: string; normalized_name: string; mention_count: number }>
+    concepts: Array<{
+      id: string
+      name: string
+      normalized_name: string
+      mention_count: number
+      skill_dimensions: string[] | null
+      domain_tags: string[] | null
+      bloom_typical_level: string | null
+    }>
     mentions: Array<{ concept_id: string; source_record_id: string }>
+    hierarchy: Array<{ child_id: string; parent_id: string; confidence: number }>
   }>('brain-graph-read', { body: {} })
 
   const [
@@ -305,6 +316,42 @@ async function fetchBrain(): Promise<{ nodes: BrainNode[]; edges: BrainEdge[] }>
   if (graphRes.error) throw graphRes.error
   const resolvedNodes = graphRes.data?.concepts ?? []
   const mentions = graphRes.data?.mentions ?? []
+  const hierarchy = graphRes.data?.hierarchy ?? []
+
+  // Concept metadata for tooltip / details panel display: id → { tags... }
+  const conceptMeta = new Map<string, {
+    skill_dimensions: string[]
+    domain_tags: string[]
+    bloom_typical_level: string | null
+    mention_count: number
+  }>()
+  for (const c of resolvedNodes) {
+    conceptMeta.set(c.id, {
+      skill_dimensions: c.skill_dimensions ?? [],
+      domain_tags: c.domain_tags ?? [],
+      bloom_typical_level: c.bloom_typical_level ?? null,
+      mention_count: c.mention_count,
+    })
+  }
+  // Hierarchy lookup: parent_id → [child_id, ...] and child_id → parent_id
+  const childrenOf = new Map<string, string[]>()
+  const parentOf = new Map<string, string>()
+  for (const h of hierarchy) {
+    const kids = childrenOf.get(h.parent_id) ?? []
+    kids.push(h.child_id)
+    childrenOf.set(h.parent_id, kids)
+    parentOf.set(h.child_id, h.parent_id)
+  }
+  // Expose on window in dev so we can inspect without a UI panel yet.
+  // TODO(v0.1): render tier hierarchy + tags in a details side panel.
+  if (typeof window !== 'undefined') {
+    (window as unknown as { __rumboV4: unknown }).__rumboV4 = {
+      conceptMeta: Object.fromEntries(conceptMeta),
+      childrenOf: Object.fromEntries(childrenOf),
+      parentOf: Object.fromEntries(parentOf),
+      counts: { concepts: resolvedNodes.length, hierarchy: hierarchy.length },
+    }
+  }
 
   // course_id → short display label.
   const courseLabels = new Map<string, string>()
@@ -547,22 +594,18 @@ function stepSim(nodes: Positioned[], edges: BrainEdge[], nodeById: Map<string, 
   }
 
   for (const e of edges) {
+    // Only course-containment edges apply spring pull. Concept-shared edges
+    // (same-class and cross-class) render but do NOT attract — otherwise
+    // shared concepts across courses drag every cluster toward the middle
+    // on initial paint, collapsing the layout. Course→child stays a real
+    // spring so drags snap back naturally.
+    if (e.sharedConcepts.length > 0) continue
     const a = nodeById.get(e.source)
     const b = nodeById.get(e.target)
     if (!a || !b) continue
     const dx = b.x - a.x, dy = b.y - a.y
     const dist = Math.sqrt(dx * dx + dy * dy) + 0.01
-    // Concept-overlap edges pull proportionally to overlap; cross-class
-    // concept bridges get an extra multiplier so they actually visually
-    // bridge clusters instead of getting pulled back by course cohesion.
-    let mult: number
-    if (e.sharedConcepts.length > 0) {
-      const base = Math.min(2, 1 + e.sharedConcepts.length * 0.2)
-      mult = e.isCrossClass ? base * CROSS_CLASS_SPRING_BOOST : base
-    } else {
-      mult = 0.4  // course containment
-    }
-    const strength = (dist - SPRING_LENGTH) * SPRING * mult
+    const strength = (dist - SPRING_LENGTH) * SPRING * 0.4
     const nx = dx / dist, ny = dy / dist
     if (!a.fixed) { a.vx += nx * strength; a.vy += ny * strength }
     if (!b.fixed) { b.vx -= nx * strength; b.vy -= ny * strength }
@@ -653,7 +696,9 @@ export default function Brain() {
   const unfreezeSim = useCallback(() => { freezeControls.current?.unfreeze() }, [])
   const dprRef = useRef<number>(1)
 
-  const view = useRef({ x: 0, y: 0, zoom: 1 })
+  // Default zoom pulled back so the wider layout (courses seat at ~450-800px
+  // radius; orphans at 1200px) fits a standard viewport on initial paint.
+  const view = useRef({ x: 0, y: 0, zoom: 0.42})
   const panState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const dragState = useRef<{ nodeId: string; offsetX: number; offsetY: number } | null>(null)
 
@@ -685,8 +730,10 @@ export default function Brain() {
     let seedCount = 0
     for (const n of filteredData.nodes) {
       if (n.courseId && !courseSeeds.has(n.courseId)) {
+        // Golden-angle spiral. Wide enough to keep clusters clean, tight
+        // enough that the whole graph is scannable in one viewport.
         const angle = seedCount * 2.399963229728653
-        const radius = 240 + Math.sqrt(seedCount) * 60
+        const radius = 550 + Math.sqrt(seedCount) * 150
         courseSeeds.set(n.courseId, {
           cx: Math.cos(angle) * radius,
           cy: Math.sin(angle) * radius,
@@ -706,9 +753,10 @@ export default function Brain() {
       let sy: number
       if (n.courseId && courseSeeds.has(n.courseId)) {
         const seed = courseSeeds.get(n.courseId)!
-        // Ring of members inside each course centroid.
-        const memberAngle = seed.idx * 1.2 + hashStr(n.id) * 0.0000001
-        const memberR = 20 + (seed.idx % 8) * 6
+        // Wider member ring so 20+ nodes per course sit visibly apart at
+        // initial paint. Golden-angle drop with a generous radius growth.
+        const memberAngle = seed.idx * 2.399963229728653 + hashStr(n.id) * 0.0000001
+        const memberR = 110 + Math.sqrt(seed.idx) * 45
         sx = seed.cx + Math.cos(memberAngle) * memberR
         sy = seed.cy + Math.sin(memberAngle) * memberR
         seed.idx += 1
@@ -773,14 +821,14 @@ export default function Brain() {
 
   useEffect(() => {
     let alive = true
-    // Auto-freeze: after N consecutive frames where total kinetic energy is
-    // below a threshold, stop stepping physics. The draw loop keeps running
-    // so redraws (hover, pan, zoom) still work. Physics resumes on any event
-    // that unfreezes (drag, filter change, data reload — see unfreezeSim).
+    // Near-static layout — physics runs until kinetic energy is negligible,
+    // then freezes. Drag / filter change / data reload unfreezes so nodes
+    // can settle again. Repulsion is very soft (see REPULSION const) so the
+    // settle is quick and non-jarring.
     let frozen = false
     let lowEnergyFrames = 0
-    const LOW_ENERGY_THRESHOLD = 0.15  // stricter — was 0.5, missed slow oscillations
-    const LOW_ENERGY_FRAMES_NEEDED = 60 // ~1s at 60fps
+    const LOW_ENERGY_THRESHOLD = 0.05
+    const LOW_ENERGY_FRAMES_NEEDED = 20  // ~1/3 sec at 60fps — settle fast
     freezeControls.current = {
       unfreeze: () => {
         frozen = false
@@ -793,7 +841,6 @@ export default function Brain() {
       if (canvas) {
         if (!frozen) {
           stepSim(positioned.current, filteredEdges.current, nodeById.current)
-          // Measure kinetic energy — if below threshold N frames in a row, freeze.
           let sumSpeedSq = 0
           const n = positioned.current.length
           for (let i = 0; i < n; i += 1) {
@@ -805,7 +852,6 @@ export default function Brain() {
             lowEnergyFrames += 1
             if (lowEnergyFrames >= LOW_ENERGY_FRAMES_NEEDED) {
               frozen = true
-              // Zero out residual velocity so the freeze holds perfectly still.
               for (let i = 0; i < n; i += 1) {
                 positioned.current[i].vx = 0
                 positioned.current[i].vy = 0
@@ -838,8 +884,6 @@ export default function Brain() {
     const ty = h / 2 + view.current.y * zoom
     ctx.setTransform(zoom, 0, 0, zoom, tx, ty)
 
-    const primary = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#8a708a'
-    const accent  = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim() || '#5b969c'
     const border = getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() || '#dbd9e2'
     const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim() || '#2b2a2e'
 
@@ -856,23 +900,14 @@ export default function Brain() {
       const x1 = a.x + nx * a.r, y1 = a.y + ny * a.r
       const x2 = b.x - nx * b.r, y2 = b.y - ny * b.r
       const highlight = hover && (e.source === hover.id || e.target === hover.id)
-      const isConcept = e.sharedConcepts.length > 0
+      // Uniform edge style — same thickness and colour for every edge.
+      // Cross-class + concept edges no longer get variable weight.
       ctx.beginPath()
       ctx.moveTo(x1, y1)
       ctx.lineTo(x2, y2)
-      if (isConcept && e.isCrossClass) {
-        ctx.strokeStyle = accent
-        ctx.globalAlpha = highlight ? 1 : 0.7
-        ctx.lineWidth = Math.max(1.3, Math.min(3, 1 + e.sharedConcepts.length * 0.3)) / view.current.zoom
-      } else if (isConcept) {
-        ctx.strokeStyle = primary
-        ctx.globalAlpha = highlight ? 1 : 0.45
-        ctx.lineWidth = Math.max(0.7, Math.min(2, 0.6 + e.sharedConcepts.length * 0.2)) / view.current.zoom
-      } else {
-        ctx.strokeStyle = border
-        ctx.globalAlpha = highlight ? 0.95 : 0.5
-        ctx.lineWidth = 1.2 / view.current.zoom
-      }
+      ctx.strokeStyle = border
+      ctx.globalAlpha = highlight ? 0.95 : 0.5
+      ctx.lineWidth = 1.2 / view.current.zoom
       ctx.stroke()
       void onTop  // parameter kept for clarity even though painting order already handles it
     }
@@ -1007,7 +1042,7 @@ export default function Brain() {
   }
 
   function resetView() {
-    view.current = { x: 0, y: 0, zoom: 1 }
+    view.current = { x: 0, y: 0, zoom: 0.42}
   }
 
   const showEmpty = !isLoading && !isError && (data?.nodes.length ?? 0) === 0

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../hooks/useAuth'
 import styles from './Tutor.module.css'
 
-// Tutor — chat surface backed by the `tutor` Edge Function.
+// Tutor — chat surface backed by the `tutor-v4` Edge Function.
 // See Rumbo-Design-Docs/Features/ai-tutor.md for product constraints:
 //   - No copy affordance on assistant messages (§9)
 //   - No export/download
@@ -11,10 +12,12 @@ import styles from './Tutor.module.css'
 // answer rendered at once.
 
 // -----------------------------------------------------------------------------
-// Types (mirror services/edge-functions/tutor/index.ts)
+// Types (mirror services/edge-functions/tutor-v4/index.ts)
 // -----------------------------------------------------------------------------
 
+// v4 learning_mode set is broader than v3 — collapse for UI display.
 type TutorMode = 'within_course' | 'cross_course' | 'small_talk'
+type V4LearningMode = 'tutoring' | 'exploration' | 'lookup' | 'cross_course' | 'small_talk'
 
 interface TutorSource {
   title: string
@@ -24,13 +27,56 @@ interface TutorSource {
   slide_number: number | null
 }
 
-interface TutorResponse {
-  conversation_id: string
+interface V4Source {
+  source_type: string
+  title: string
+  course_code: string | null
+  slide_or_section: string | null
+  rerank_score: number | null
+}
+
+interface TutorV4Response {
+  ok: boolean
+  session_id: string | null
   answer: string
-  mode: TutorMode
-  confidence: number
-  sources: TutorSource[]
-  turn_id: string | null
+  learning_mode: V4LearningMode
+  template: string | null
+  model_used: string
+  is_clarifying: boolean
+  sources: V4Source[]
+  timing_ms: Record<string, number>
+}
+
+// v3 mode enum kept for UI code; mapped from v4 learning_mode.
+function mapV4ModeToUI(m: V4LearningMode): TutorMode {
+  if (m === 'cross_course') return 'cross_course'
+  if (m === 'small_talk') return 'small_talk'
+  return 'within_course'  // tutoring / exploration / lookup all collapse
+}
+
+function mapV4Source(v: V4Source): TutorSource {
+  // v4 doesn't return URLs yet (need to enrich retrieval query later); leave null.
+  let slide: number | null = null
+  if (v.slide_or_section) {
+    const m = v.slide_or_section.match(/(\d+)/)
+    if (m) slide = Number(m[1])
+  }
+  return {
+    title: v.title || '(untitled)',
+    url: null,
+    course: v.course_code,
+    term: null,
+    slide_number: slide,
+  }
+}
+
+function confidenceFromV4(sources: V4Source[], mode: V4LearningMode): number {
+  if (mode === 'small_talk') return 1
+  if (mode === 'lookup') return 0.9
+  const topRerank = sources
+    .map(s => s.rerank_score ?? 0)
+    .reduce((a, b) => Math.max(a, b), 0)
+  return topRerank > 0 ? Math.min(0.95, topRerank + 0.4) : 0.6
 }
 
 interface UserMessage {
@@ -110,6 +156,9 @@ function makeId(): string {
 // -----------------------------------------------------------------------------
 
 export default function Tutor() {
+  const { session } = useAuth()
+  const userId = session?.user?.id ?? null
+
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -135,26 +184,29 @@ export default function Tutor() {
     setBusy(true)
 
     try {
-      const { data, error } = await supabase.functions.invoke<TutorResponse>('tutor', {
+      if (!userId) throw new Error('Not signed in')
+      const { data, error } = await supabase.functions.invoke<TutorV4Response>('tutor-v4', {
         body: {
-          question,
-          conversation_id: conversationId ?? undefined,
+          user_id: userId,
+          message: question,
+          session_id: conversationId ?? undefined,
         },
       })
       if (error) throw error
       if (!data) throw new Error('Empty response from tutor')
 
+      const uiSources = (data.sources ?? []).map(mapV4Source)
       const assistantMsg: AssistantMessage = {
         role: 'assistant',
-        id: data.turn_id ?? makeId(),
+        id: makeId(),
         text: data.answer,
-        mode: data.mode,
-        confidence: data.confidence,
-        sources: data.sources ?? [],
-        turnId: data.turn_id,
+        mode: mapV4ModeToUI(data.learning_mode),
+        confidence: confidenceFromV4(data.sources ?? [], data.learning_mode),
+        sources: uiSources,
+        turnId: null,
       }
       setMessages(prev => [...prev, assistantMsg])
-      if (!conversationId) setConversationId(data.conversation_id)
+      if (!conversationId && data.session_id) setConversationId(data.session_id)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong.'
       setMessages(prev => [...prev, { role: 'error', id: makeId(), text: msg }])
@@ -163,7 +215,7 @@ export default function Tutor() {
       // Restore focus so the student can keep typing.
       textareaRef.current?.focus()
     }
-  }, [input, busy, conversationId])
+  }, [input, busy, conversationId, userId])
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Cmd/Ctrl+Enter sends. Plain Enter inserts a newline (matches multi-line

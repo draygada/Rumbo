@@ -21,12 +21,24 @@ interface ConceptRow {
   name: string
   normalized_name: string
   mention_count: number
+  // v4 pedagogical tags (nullable — old v3 concepts don't have them,
+  // but the graph has been wiped + rebuilt so should always be populated now).
+  skill_dimensions: string[] | null
+  domain_tags: string[] | null
+  bloom_typical_level: string | null
 }
 
 interface CoversRow {
   concept_id: string
   source_id: string
   source_label: string
+}
+
+// v4 concept-to-concept edge — tier-2 child → tier-1 parent.
+interface HierarchyRow {
+  child_id: string
+  parent_id: string
+  confidence: number
 }
 
 async function getUserIdFromRequest(req: Request): Promise<string | null> {
@@ -132,16 +144,27 @@ Deno.serve(async (req) => {
   const g = neo4j()
   const admin = createAdminClient()
 
-  // 1. Concepts from Neo4j.
+  // 1. Concepts from Neo4j — with v4 pedagogical tags.
   const concepts = (await g.run<ConceptRow>(
     `MATCH (c:Concept {user_id: $userId})
      RETURN c.id AS id,
             c.name AS name,
             coalesce(c.normalized_name, c.name) AS normalized_name,
-            coalesce(c.mention_count, 1) AS mention_count
+            coalesce(c.mention_count, 1) AS mention_count,
+            c.skill_dimensions AS skill_dimensions,
+            c.domain_tags AS domain_tags,
+            c.bloom_typical_level AS bloom_typical_level
      ORDER BY mention_count DESC`,
     { userId },
   )) as ConceptRow[]
+
+  // 1b. PARENT_CONCEPT hierarchy (child → parent, both Concepts).
+  const hierarchy = (await g.run<HierarchyRow>(
+    `MATCH (child:Concept {user_id: $userId})-[r:PARENT_CONCEPT]->(parent:Concept {user_id: $userId})
+     RETURN child.id AS child_id, parent.id AS parent_id, r.confidence AS confidence
+     ORDER BY r.confidence DESC`,
+    { userId },
+  )) as HierarchyRow[]
 
   // 2. COVERS edges — source node → concept.
   const covers = (await g.run<CoversRow>(
@@ -181,10 +204,12 @@ Deno.serve(async (req) => {
   return jsonResponse({
     concepts,
     mentions,
+    hierarchy,
     counts: {
       concepts: concepts.length,
       covers_edges: covers.length,
       mentions: mentions.length,
+      hierarchy_edges: hierarchy.length,
     },
   })
 })

@@ -11,6 +11,7 @@
 
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts'
 import { neo4j } from '../_shared/neo4j.ts'
+import { NEO4J_V4_CYPHER } from '../_shared/neo4j-schema-v4.ts'
 
 interface SchemaStep {
   name: string
@@ -126,6 +127,19 @@ const chunkParentIndex: SchemaStep = {
   statement: 'CREATE INDEX chunk_by_parent IF NOT EXISTS FOR (n:Chunk) ON (n.user_id, n.parent_id)',
 }
 
+// Pipeline-v4 additions — BM25 fulltext indexes for Lane A retrieval,
+// property indexes for concept tags, PARENT_CONCEPT edge index.
+// Source: _shared/neo4j-schema-v4.ts.
+const v4Steps: SchemaStep[] = NEO4J_V4_CYPHER.map((stmt, i) => {
+  // Extract the index name from `CREATE FULLTEXT INDEX <name>` or
+  // `CREATE INDEX <name>` for the step name; fall back to positional.
+  const nameMatch = stmt.match(/CREATE\s+(?:FULLTEXT\s+)?INDEX\s+([a-zA-Z_]+)/)
+  return {
+    name: nameMatch ? `v4_${nameMatch[1]}` : `v4_step_${i}`,
+    statement: stmt,
+  }
+})
+
 const ALL_STEPS: SchemaStep[] = [
   ...uniquenessConstraints,
   chunkConstraint,
@@ -133,6 +147,7 @@ const ALL_STEPS: SchemaStep[] = [
   chunkParentIndex,
   ...fulltextIndexes,
   ...vectorIndexes,
+  ...v4Steps,
 ]
 
 async function requireCronAuth(req: Request): Promise<Response | null> {
