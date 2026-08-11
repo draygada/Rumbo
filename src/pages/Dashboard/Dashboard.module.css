@@ -19,6 +19,8 @@
   align-items: start;
   gap: var(--space-lg);
   width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
 }
 
 .heading {
@@ -63,7 +65,8 @@
 
 .content {
   padding: 0 var(--page-padding-desktop) var(--space-3xl);
-  max-width: 720px;
+  max-width: 880px;
+  margin: 0 auto;
 }
 
 @media (max-width: 1024px) {

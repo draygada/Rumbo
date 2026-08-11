@@ -249,7 +249,7 @@ export default function Onboarding() {
     if (!userRows || userRows.length === 0) {
       throw new Error('Could not complete onboarding for this user')
     }
-    window.location.replace('/dashboard')
+    window.location.replace('/home')
   }
 
   async function handleStudySubmit(e: FormEvent) {

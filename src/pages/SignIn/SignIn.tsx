@@ -28,7 +28,7 @@ export default function SignIn() {
     setLoading(true)
     try {
       await signIn(email, password)
-      navigate('/dashboard')
+      navigate('/home')
     } catch (err) {
       if (isEmailNotConfirmedError(err)) {
         const emailParam = encodeURIComponent(email.trim())

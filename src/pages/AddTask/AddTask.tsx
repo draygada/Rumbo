@@ -169,7 +169,7 @@ export default function AddTask() {
 
       // Navigate immediately. The DB trigger fires schedule-generator automatically;
       // the Realtime subscription on work_blocks updates the dashboard when blocks arrive.
-      navigate('/dashboard')
+      navigate('/tasks')
     } catch (err) {
       console.error('[AddTask] Submit failed', err)
       setError(err instanceof Error ? err.message : 'Failed to save task')
@@ -181,7 +181,7 @@ export default function AddTask() {
   return (
     <div className={styles.page}>
       <div className={styles.container}>
-        <Link to="/dashboard" className={styles.back}>
+        <Link to="/tasks" className={styles.back}>
           ← Back
         </Link>
 

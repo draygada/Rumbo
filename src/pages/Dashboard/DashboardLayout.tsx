@@ -5,9 +5,7 @@ import styles from './DashboardLayout.module.css'
 export default function DashboardLayout() {
   return (
     <div className={styles.shell}>
-      <div className={styles.sidebarCol}>
-        <Sidebar />
-      </div>
+      <Sidebar />
       <main className={styles.main}>
         <div className={styles.mainInner}>
           <Outlet />

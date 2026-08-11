@@ -5,7 +5,9 @@ import SignUp from '../pages/SignUp/SignUp'
 import ConfirmEmail from '../pages/ConfirmEmail/ConfirmEmail'
 import Onboarding from '../pages/Onboarding/Onboarding'
 import DashboardLayout from '../pages/Dashboard/DashboardLayout'
+import Home from '../pages/Home/Home'
 import Dashboard from '../pages/Dashboard/Dashboard'
+import Courses from '../pages/Courses/Courses'
 import Settings from '../pages/Settings/Settings'
 import Account from '../pages/Account/Account'
 import AddTask from '../pages/AddTask/AddTask'
@@ -13,7 +15,7 @@ import AddTask from '../pages/AddTask/AddTask'
 function PublicRoute() {
   const { session, profile, loading } = useAuth()
   if (loading) return null
-  if (session && profile?.onboarding_completed) return <Navigate to="/dashboard" replace />
+  if (session && profile?.onboarding_completed) return <Navigate to="/home" replace />
   if (session && !profile?.onboarding_completed) return <Navigate to="/onboarding" replace />
   return <Outlet />
 }
@@ -54,7 +56,10 @@ export const router = createBrowserRouter([
       {
         element: <DashboardLayout />,
         children: [
-          { path: '/dashboard', element: <Dashboard /> },
+          { path: '/home', element: <Home /> },
+          { path: '/tasks', element: <Dashboard /> },
+          { path: '/courses', element: <Courses /> },
+          { path: '/dashboard', element: <Navigate to="/tasks" replace /> },
           { path: '/settings', element: <Settings /> },
           { path: '/account', element: <Account /> },
           { path: '/add-task', element: <AddTask /> },

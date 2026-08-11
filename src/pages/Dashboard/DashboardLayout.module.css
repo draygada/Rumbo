@@ -1,31 +1,24 @@
-/* Shell: fixed viewport, two columns. Only .mainInner scrolls. */
+/*
+ * Shell: fixed viewport. The sidebar is position:fixed (see Sidebar.module.css)
+ * and this shell reserves a fixed left gutter of --rail for it. Hover-expand
+ * overlays the content (no reflow). Only .mainInner scrolls.
+ */
 .shell {
-  --sidebar-width: 200px;
+  --rail: 64px;
+  --rail-expanded: 224px;
   position: fixed;
   inset: 0;
-  display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  width: 100%;
   height: 100dvh;
   overflow: hidden;
 }
 
-.sidebarCol {
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-  background: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-border);
-}
-
 .main {
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
+  position: absolute;
+  inset: 0 0 0 var(--rail);
   display: flex;
   flex-direction: column;
   background: var(--color-bg-page);
+  overflow: hidden;
 }
 
 .mainInner {
@@ -37,19 +30,15 @@
   -webkit-overflow-scrolling: touch;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 768px) {
   .shell {
-    --sidebar-width: 160px;
+    --rail: 56px;
+    --rail-expanded: 208px;
   }
 }
 
-@media (max-width: 768px) {
-  .shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
-  .sidebarCol {
-    flex-shrink: 0;
+@media (prefers-reduced-motion: reduce) {
+  .main {
+    transition: none;
   }
 }
