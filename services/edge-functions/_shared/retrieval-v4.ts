@@ -95,18 +95,18 @@ export async function retrieveV4(
   const pinnedCourseIds = demoCourse ? [demoCourse] : courseIds
   const pinnedCrossCourse = req.learningMode === 'cross_course' && !demoCourse
 
-  // Empty retrieval fallback (per pipeline-v4.md + this session's decision):
-  // when concept resolver returns 0 in tutoring/cross_course mode, ask a
-  // clarifying question instead of running blind.
-  if (
-    resolvedConcepts.length === 0 &&
-    (req.learningMode === 'cross_course' || req.learningMode === 'tutoring')
-  ) {
+  // Empty-retrieval fallback. Previously this short-circuited whenever concept
+  // resolution returned 0 — but Lane A (BM25 + vector) does NOT need concepts,
+  // so factual questions with no concept in them ("who teaches this course and
+  // when does it meet?") were answered with a clarifying question even though
+  // the syllabus was sitting right there. Only cross_course genuinely requires
+  // a concept up front, because Lane B is what discovers the course set.
+  // For tutoring/exploration we now fan out first and clarify only if the
+  // fused result really is empty (see after Stage 6).
+  if (resolvedConcepts.length === 0 && req.learningMode === 'cross_course') {
     return {
       sources: [], resolvedConcepts: [], resolvedCourseCodes: [],
-      clarifyingQuestion: req.learningMode === 'cross_course'
-        ? `To trace this across your classes, I need a specific concept — like "linear regression" or "market segmentation". Which concept did you have in mind?`
-        : `I couldn't find that in your coursework. Do you have a specific concept or reading in mind?`,
+      clarifyingQuestion: `To trace this across your classes, I need a specific concept — like "linear regression" or "market segmentation". Which concept did you have in mind?`,
     }
   }
 
@@ -129,7 +129,12 @@ export async function retrieveV4(
       : []
   } else {
     ;[laneA, laneB] = await Promise.all([
-      queryEmbed ? runLaneA(g, req, queryEmbed, pinnedCourseIds, !!demoCourse) : Promise.resolve([]),
+      // Lane A used to be skipped entirely when the query embedding was
+      // unavailable — but only its VECTOR half needs the embedding; BM25 does
+      // not. When Cohere embed fails (quota/rate-limit), that gate silently
+      // removed keyword search too, so any query without a resolvable concept
+      // (i.e. no Lane B either) retrieved nothing at all. Run Lane A always.
+      runLaneA(g, req, queryEmbed, pinnedCourseIds, !!demoCourse),
       runLaneB(g, req, resolvedConcepts, pinnedCourseIds, !!demoCourse),
     ])
     resolvedCourseCodes = pinnedCourseIds  // report internal IDs for now
@@ -137,6 +142,15 @@ export async function retrieveV4(
 
   // Stage 5: RRF fusion
   const fused = rrfFuse([laneA, laneB])
+
+  // Nothing matched at all — now it's honest to ask for direction rather than
+  // answer from nothing. (Moved here from before the fan-out; see above.)
+  if (fused.length === 0) {
+    return {
+      sources: [], resolvedConcepts, resolvedCourseCodes,
+      clarifyingQuestion: `I couldn't find that in your coursework. Do you have a specific concept or reading in mind?`,
+    }
+  }
 
   // Stage 6: Cohere Rerank 4 (formatted per §6.6)
   const docs = fused.map(f => formatForRerank(f))
@@ -310,13 +324,13 @@ interface FanOutHit {
 async function runLaneA(
   g: Neo4jClient,
   req: RetrievalRequest,
-  queryEmbed: number[],
+  queryEmbed: number[] | null,
   courseCodes: string[],
   strict: boolean,
 ): Promise<FanOutHit[]> {
   const [bm25, vec] = await Promise.all([
     laneA_BM25(g, req, courseCodes, strict),
-    laneA_Vector(g, req, queryEmbed, courseCodes, strict),
+    queryEmbed ? laneA_Vector(g, req, queryEmbed, courseCodes, strict) : Promise.resolve([]),
   ])
   const fused = rrfFuse([bm25, vec])
   return fused.slice(0, LANE_A_TOP)
@@ -330,18 +344,31 @@ async function laneA_BM25(
 ): Promise<FanOutHit[]> {
   // strict (demo pin): a Chunk has no course_id of its own, so resolve it via
   // its parent doc; drop the NULL escape so cross-course nodes can't leak.
+  // Non-strict keeps the permissive NULL escape. Strict resolves a Chunk's
+  // course via its parent doc — but WITHOUT an EXISTS{} subquery: that form was
+  // silently failing on this Neo4j version, and laneA_BM25 fail-softs per index
+  // (catch → []), so the whole BM25 lane returned zero hits with no error
+  // surfaced. Content queries masked it because Lane B still supplied sources;
+  // metadata queries (no concept → no Lane B) returned nothing at all.
   const bm25Filter = courseCodes.length === 0 ? ''
     : strict
-      ? 'AND (node.course_id IN $codes OR EXISTS { MATCH (pp)-[:HAS_CHUNK]->(node) WHERE pp.course_id IN $codes })'
+      ? 'AND coalesce(node.course_id, parentDoc.course_id) IN $codes'
       : 'AND (node.course_id IS NULL OR node.course_id IN $codes)'
+  // Strict mode needs the parent bound before the WHERE that references it.
+  const bm25ParentMatch = courseCodes.length > 0 && strict
+    ? 'OPTIONAL MATCH (parentDoc)-[:HAS_CHUNK]->(node)'
+    : ''
   // Fire all fulltext indexes concurrently rather than one Neo4j round-trip
   // at a time.
   const perIndex = await Promise.all(FULLTEXT_INDEXES.map(async (idx): Promise<FanOutHit[]> => {
     try {
       const rows = await g.run(
         `CALL db.index.fulltext.queryNodes($idx, $q) YIELD node, score
+         WITH node, score
          WHERE node.user_id = $userId
-           ${bm25Filter}
+         ${bm25ParentMatch}
+         WITH node, score${bm25ParentMatch ? ', parentDoc' : ''}
+         WHERE true ${bm25Filter}
          WITH node, score ORDER BY score DESC LIMIT 15
          OPTIONAL MATCH (c:Course { user_id: $userId })-[:CONTAINS]->(node)
          RETURN labels(node)[0] AS label, node.id AS id,
