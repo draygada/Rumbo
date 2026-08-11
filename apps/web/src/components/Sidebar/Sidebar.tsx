@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { getInitials } from '../../lib/initials'
 import RumboMark from '../RumboMark/RumboMark'
 import {
-  ChatIcon, TasksIcon, CoursesIcon, SettingsIcon, UserIcon, BrainIcon, TutorIcon,
+  ChatIcon, TasksIcon, CoursesIcon, SettingsIcon, UserIcon, BrainIcon,
 } from '../icons/Icons'
 import styles from './Sidebar.module.css'
 
@@ -12,8 +12,7 @@ import styles from './Sidebar.module.css'
 // from the pre-pivot codebase), so they're added to the rail here rather than
 // coming across in the port.
 const PRIMARY = [
-  { to: '/home', label: 'Home', icon: ChatIcon },
-  { to: '/tutor', label: 'Tutor', icon: TutorIcon },
+  { to: '/home', label: 'Chat', icon: ChatIcon },
   { to: '/brain', label: 'Brain', icon: BrainIcon },
   { to: '/tasks', label: 'Tasks', icon: TasksIcon },
   { to: '/courses', label: 'Courses', icon: CoursesIcon },

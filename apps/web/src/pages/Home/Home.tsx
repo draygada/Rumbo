@@ -1,18 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useTasks, getNextBlock, TaskWithBlocks } from '../../hooks/useTasks'
 import RumboMark from '../../components/RumboMark/RumboMark'
 import { SendIcon } from '../../components/icons/Icons'
+import Markdown from '../../components/Markdown/Markdown'
+import ChatHistory from '../../chat/ChatHistory'
+import { streamTutor } from '../../chat/streamTutor'
+import { useSmoothStream } from '../../chat/useSmoothStream'
+import {
+  useChatStore,
+  useActiveChat,
+  useActiveStreamText,
+  type ChatMessage,
+  type TutorSource,
+} from '../../chat/chatStore'
 import styles from './Home.module.css'
-import { supabase } from '../../lib/supabase'
-
-interface Message {
-  id: string
-  role: 'user' | 'rumbo'
-  text: string
-  sources?: string[]
-  pending?: boolean
-}
 
 function greeting(date = new Date()): string {
   const h = date.getHours()
@@ -26,38 +28,6 @@ function firstName(name?: string | null, email?: string | null): string {
   if (fromName) return fromName
   const fromEmail = email?.split('@')[0]
   return fromEmail ? fromEmail.charAt(0).toUpperCase() + fromEmail.slice(1) : 'there'
-}
-
-/*
- * The seam to the backend. Calls the real tutor (tutor-v4), which answers
- * grounded in the student's own coursework and returns the sources it used.
- * Kept to the original stub's `{ text, sources }` contract so the UI below is
- * unchanged.
- *
- * Note: /tutor is the full surface (token streaming, Markdown, chat history).
- * Home deliberately uses the simpler non-streaming call — it's a landing
- * affordance, not a replacement for that page.
- */
-async function askRumbo(prompt: string): Promise<{ text: string; sources: string[] }> {
-  const { data: { session } } = await supabase.auth.getSession()
-  const userId = session?.user?.id
-  if (!userId) return { text: 'Please sign in again to ask Rumbo.', sources: [] }
-
-  const { data, error } = await supabase.functions.invoke<{
-    ok: boolean
-    answer: string
-    sources: Array<{ title: string; course_code: string | null; source_type: string }>
-  }>('tutor-v4', { body: { user_id: userId, message: prompt } })
-
-  if (error || !data) {
-    return { text: "I couldn't reach the tutor just then. Try again in a moment.", sources: [] }
-  }
-  // "W26-EDUC-475-01 · Final Pitch" — course first when we know it.
-  const sources = (data.sources ?? [])
-    .map(s => (s.course_code ? `${s.course_code} · ${s.title}` : s.title))
-    .filter(Boolean)
-    .slice(0, 4)
-  return { text: data.answer, sources }
 }
 
 interface Suggestion {
@@ -123,16 +93,55 @@ function deriveSuggestions(tasks: TaskWithBlocks[], limit = 3): Suggestion[] {
   })
 }
 
+interface RawSource {
+  source_type: string
+  title: string
+  course_code: string | null
+  slide_or_section: string | null
+  rerank_score: number | null
+}
+
+function toTutorSource(v: RawSource): TutorSource {
+  let slide: number | null = null
+  if (v.slide_or_section) {
+    const m = v.slide_or_section.match(/(\d+)/)
+    if (m) slide = Number(m[1])
+  }
+  return { title: v.title || '(untitled)', url: null, course: v.course_code, term: null, slide_number: slide }
+}
+
+function makeId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 export default function Home() {
   const { profile, session } = useAuth()
-  const [messages, setMessages] = useState<Message[]>([])
+  const userId = session?.user?.id ?? null
+
+  // Chat lives in the shared persisted store, so a conversation survives
+  // navigation and reload, and the same history powers "Past chats".
+  const activeChat = useActiveChat()
+  const messages: ChatMessage[] = activeChat?.messages ?? []
+  const streamText = useActiveStreamText()
+  const appendMessage = useChatStore(s => s.appendMessage)
+  const appendMessageToChat = useChatStore(s => s.appendMessageToChat)
+  const newChatStore = useChatStore(s => s.newChat)
+  const startStreaming = useChatStore(s => s.startStreaming)
+  const appendStreamDelta = useChatStore(s => s.appendStreamDelta)
+  const endStreaming = useChatStore(s => s.endStreaming)
+  const stopStreaming = useChatStore(s => s.stopStreaming)
+
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [chatsOpen, setChatsOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  // Steady reveal instead of bursty network chunks.
+  const smoothed = useSmoothStream(streamText, false)
+  const busy = streamText !== null
+
   const { data: tasks } = useTasks()
-  const active = messages.length > 0
+  const active = messages.length > 0 || streamText !== null
   const name = firstName(profile?.name, session?.user?.email ?? profile?.email)
 
   const suggestions = useMemo(() => {
@@ -142,21 +151,86 @@ export default function Home() {
 
   useEffect(() => {
     if (active) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, active])
+  }, [messages, smoothed, active])
 
-  async function send(text: string) {
+  const send = useCallback(async (text: string) => {
     const prompt = text.trim()
     if (!prompt || busy) return
+    if (!userId) {
+      appendMessage({ role: 'error', id: makeId(), text: 'Not signed in' })
+      return
+    }
     setDraft('')
-    setBusy(true)
-    const userMsg: Message = { id: `u-${messages.length}`, role: 'user', text: prompt }
-    const pending: Message = { id: `r-${messages.length}`, role: 'rumbo', text: '', pending: true }
-    setMessages(prev => [...prev, userMsg, pending])
-    const reply = await askRumbo(prompt)
-    setMessages(prev =>
-      prev.map(m => (m.id === pending.id ? { ...m, text: reply.text, sources: reply.sources, pending: false } : m)),
-    )
-    setBusy(false)
+    appendMessage({ role: 'user', id: makeId(), text: prompt })
+
+    // Capture the chat that owns this turn so the answer commits to it even if
+    // the student navigates away or starts a new chat mid-stream.
+    const st = useChatStore.getState()
+    const chat = st.chats.find(c => c.id === st.activeChatId) ?? null
+    const chatId = chat?.id
+    if (!chatId) return
+    const conversationId = chat?.conversationId ?? null
+
+    const controller = new AbortController()
+    startStreaming(chatId, controller)
+    let meta: { learning_mode: string; sources: RawSource[]; session_id: string | null } | null = null
+    let settled = false
+
+    try {
+      await streamTutor({
+        userId,
+        message: prompt,
+        conversationId,
+        signal: controller.signal,
+        onMeta: m => {
+          meta = m as typeof meta
+          if (!conversationId && m.session_id) useChatStore.getState().setConversationId(m.session_id)
+        },
+        onToken: delta => appendStreamDelta(delta),
+        onDone: ({ answer }) => {
+          if (settled) return
+          settled = true
+          appendMessageToChat(chatId, {
+            role: 'assistant',
+            id: makeId(),
+            text: answer,
+            mode: 'within_course',
+            confidence: 0.8,
+            sources: (meta?.sources ?? []).map(toTutorSource),
+            turnId: null,
+          })
+          endStreaming(chatId)
+        },
+        onError: e => {
+          if (settled) return
+          settled = true
+          appendMessageToChat(chatId, { role: 'error', id: makeId(), text: e })
+          endStreaming(chatId)
+        },
+      })
+    } catch (err) {
+      if (!settled) {
+        settled = true
+        const aborted = err instanceof DOMException && err.name === 'AbortError'
+        if (!aborted) {
+          appendMessageToChat(chatId, {
+            role: 'error', id: makeId(),
+            text: err instanceof Error ? err.message : 'Something went wrong.',
+          })
+        }
+        endStreaming(chatId)
+      }
+    } finally {
+      inputRef.current?.focus()
+    }
+  }, [busy, userId, appendMessage, appendMessageToChat, startStreaming, appendStreamDelta, endStreaming])
+
+  function newChat() {
+    stopStreaming()
+    newChatStore()
+    setDraft('')
+    setChatsOpen(false)
+    inputRef.current?.focus()
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -204,6 +278,9 @@ export default function Home() {
           </h1>
           <p className={styles.subtitle}>What are you working on today?</p>
           {composer}
+          <button type="button" className={styles.heroPastChats} onClick={() => setChatsOpen(true)}>
+            Past chats
+          </button>
           <div className={styles.quick}>
             {suggestions.map(s => (
               <button key={s.label} className={styles.tile} onClick={() => send(s.prompt)} type="button">
@@ -212,51 +289,104 @@ export default function Home() {
             ))}
           </div>
         </div>
+        <ChatHistory open={chatsOpen} onClose={() => setChatsOpen(false)} />
       </div>
     )
   }
 
   return (
     <div className={styles.chat}>
+      <div className={styles.chatBar}>
+        <div className={styles.chatBarInner}>
+          <button type="button" className={styles.barButton} onClick={() => setChatsOpen(true)}>
+            Past chats
+          </button>
+          <button type="button" className={styles.barButton} onClick={newChat} disabled={busy}>
+            New chat
+          </button>
+        </div>
+      </div>
+
       <div className={styles.thread} ref={scrollRef}>
         <div className={styles.threadInner}>
-          {messages.map(m =>
-            m.role === 'user' ? (
-              <div key={m.id} className={styles.userRow}>
-                <div className={styles.userBubble}>{m.text}</div>
-              </div>
-            ) : (
+          {messages.map(m => {
+            if (m.role === 'user') {
+              return (
+                <div key={m.id} className={styles.userRow}>
+                  <div className={styles.userBubble}>{m.text}</div>
+                </div>
+              )
+            }
+            if (m.role === 'error') {
+              return (
+                <div key={m.id} className={styles.rumboRow}>
+                  <div className={styles.rumboMark}>
+                    <RumboMark size={30} variant="static" hubR={6} minimal />
+                  </div>
+                  <div className={styles.rumboBody}>
+                    <span className={styles.rumboLabel}>Rumbo</span>
+                    <p className={styles.errorText}>Couldn't reach the tutor: {m.text}</p>
+                  </div>
+                </div>
+              )
+            }
+            return (
               <div key={m.id} className={styles.rumboRow}>
                 <div className={styles.rumboMark}>
-                  <RumboMark size={30} variant={m.pending ? 'pulse' : 'static'} hubR={6} minimal />
+                  <RumboMark size={30} variant="static" hubR={6} minimal />
                 </div>
                 <div className={styles.rumboBody}>
                   <span className={styles.rumboLabel}>Rumbo</span>
-                  {m.pending ? (
-                    <span className={styles.thinking}>Thinking…</span>
-                  ) : (
-                    <>
-                      <p className={styles.rumboText}>{m.text}</p>
-                      {m.sources && m.sources.length > 0 && (
-                        <div className={styles.sources}>
-                          {m.sources.map(s => (
-                            <span key={s} className={styles.sourceChip}>
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </>
+                  <div className={styles.rumboText}>
+                    <Markdown>{m.text}</Markdown>
+                  </div>
+                  {m.sources.length > 0 && (
+                    <details className={styles.sources}>
+                      <summary className={styles.sourcesSummary}>
+                        <span className={styles.sourcesChevron} aria-hidden="true" />
+                        {m.sources.length} {m.sources.length === 1 ? 'source' : 'sources'}
+                      </summary>
+                      <div className={styles.sourceChips}>
+                        {m.sources.map((s, i) => (
+                          <span key={`${m.id}-s-${i}`} className={styles.sourceChip}>
+                            {s.course ? `${s.course} · ${s.title}` : s.title}
+                          </span>
+                        ))}
+                      </div>
+                    </details>
                   )}
                 </div>
               </div>
-            ),
+            )
+          })}
+
+          {/* Live turn: the mark animates while Rumbo works, then the answer
+              reveals at a steady rate. */}
+          {streamText !== null && (
+            <div className={styles.rumboRow}>
+              <div className={styles.rumboMark}>
+                <RumboMark size={30} variant="pulse" hubR={6} minimal />
+              </div>
+              <div className={styles.rumboBody}>
+                <span className={styles.rumboLabel}>Rumbo</span>
+                {smoothed.length === 0 ? (
+                  <span className={styles.thinking}>Thinking…</span>
+                ) : (
+                  <div className={[styles.rumboText, styles.streamingBody].join(' ')}>
+                    <Markdown>{smoothed}</Markdown>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>
+
       <div className={styles.dock}>
         <div className={styles.dockInner}>{composer}</div>
       </div>
+
+      <ChatHistory open={chatsOpen} onClose={() => setChatsOpen(false)} />
     </div>
   )
 }

@@ -10,7 +10,6 @@ import Settings from '../pages/Settings/Settings'
 import Account from '../pages/Account/Account'
 import ManualCourses from '../pages/ManualCourses/ManualCourses'
 import Brain from '../pages/Brain/Brain'
-import Tutor from '../pages/Tutor/Tutor'
 import Home from '../pages/Home/Home'
 // AddTask is preserved but not routed in V0 — see Rumbo-Design-Docs/Legacy/scheduler.md.
 
@@ -64,7 +63,8 @@ export const router = createBrowserRouter([
           { path: '/dashboard', element: <Navigate to="/tasks" replace /> },
           { path: '/courses', element: <ManualCourses /> },
           { path: '/brain', element: <Brain /> },
-          { path: '/tutor', element: <Tutor /> },
+          // Chat consolidated onto /home; keep the path working for old links.
+          { path: '/tutor', element: <Navigate to="/home" replace /> },
           { path: '/settings', element: <Settings /> },
           { path: '/account', element: <Account /> },
         ],

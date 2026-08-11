@@ -249,3 +249,130 @@
     max-width: 88%;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Chat controls + evidence disclosure (Home is now the single chat surface).
+   --------------------------------------------------------------------------- */
+
+.chatBar {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-page);
+}
+
+.chatBarInner {
+  max-width: 760px;
+  margin-inline: auto;
+  padding: var(--space-sm) var(--space-lg);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.barButton {
+  padding: 5px 11px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.barButton:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-border-hover);
+}
+
+.barButton:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Quiet link under the hero composer, so history is reachable before the
+   first message too. */
+.heroPastChats {
+  margin-top: var(--space-md);
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.heroPastChats:hover { color: var(--color-text-secondary); }
+
+.errorText {
+  color: var(--color-error);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
+/* Sources: collapsed by default — evidence on demand, not a panel per answer. */
+.sources { margin-top: var(--space-sm); }
+
+.sourcesSummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--text-badge);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  user-select: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.sourcesSummary::-webkit-details-marker { display: none; }
+.sourcesSummary:hover { color: var(--color-text-secondary); }
+.sourcesSummary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.sourcesChevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.sources[open] .sourcesChevron { transform: rotate(45deg); }
+
+.sourceChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--space-sm);
+}
+
+/* Live stream: soft fade per reveal + a caret so it reads as typing. */
+.streamingBody { animation: home-stream-fade var(--duration-fast) var(--ease-out); }
+
+.streamingBody::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-accent);
+  animation: home-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes home-stream-fade { from { opacity: 0.55 } to { opacity: 1 } }
+@keyframes home-caret-blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sourcesChevron { transition: none; }
+  .streamingBody { animation: none; }
+  .streamingBody::after { animation: none; opacity: 1; }
+}
