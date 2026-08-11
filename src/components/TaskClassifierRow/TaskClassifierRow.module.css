@@ -16,12 +16,12 @@
 }
 
 .deep {
-  background: #e8f2f3;
+  background: var(--badge-deep-bg);
   color: var(--rumbo-teal);
 }
 
 .shallow {
-  background: #ede8f2;
+  background: var(--badge-shallow-bg);
   color: var(--rumbo-plum);
 }
 
