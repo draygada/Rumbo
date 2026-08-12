@@ -11,20 +11,14 @@
   height: 30px;
 }
 
+/* No CSS transition here on purpose. The transform is integrated frame by
+   frame in JS (useSpaceSwipe) so the release can inherit the gesture's
+   velocity; a transition would restart from rest and re-ease, which is exactly
+   the stutter this replaced. */
 .strip {
   display: flex;
   height: 100%;
   will-change: transform;
-}
-
-/* No transition while the fingers are down — the transform IS the finger
-   position. The snap back to a whole slide is what gets animated. */
-.strip {
-  transition: transform 0.22s var(--ease-out);
-}
-
-.stripDragging {
-  transition: none;
 }
 
 .slide {

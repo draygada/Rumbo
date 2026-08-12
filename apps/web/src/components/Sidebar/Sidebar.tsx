@@ -43,7 +43,7 @@ export default function Sidebar() {
   const spaces = useSpaces()
   const spaceIndex = useActiveSpaceIndex()
   const enterSpace = useSpaceStore(s => s.enterSpace)
-  const { ref: railRef, dragX } = useSpaceSwipe<HTMLElement>({
+  const { ref: railRef } = useSpaceSwipe<HTMLElement>({
     count: spaces.length,
     index: spaceIndex,
     onChange: next => {
@@ -86,7 +86,7 @@ export default function Sidebar() {
         <span className={styles.brandWord}>Rumbo</span>
       </NavLink>
 
-      <SpaceSwitcher dragX={dragX} />
+      <SpaceSwitcher />
 
       <nav className={styles.nav}>
         <ul className={styles.group}>

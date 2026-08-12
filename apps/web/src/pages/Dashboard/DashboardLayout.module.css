@@ -28,6 +28,10 @@
   overflow-y: scroll;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  /* Transform and opacity are driven per-frame by the space swipe
+     (spaces/spaceMotion.ts). Promoting the layer up front keeps the first
+     frame of a gesture from stuttering on paint. */
+  will-change: transform, opacity;
 }
 
 @media (max-width: 768px) {

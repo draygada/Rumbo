@@ -3,6 +3,7 @@ import { useSpaces, useActiveSpaceIndex } from './useSpaces'
 import { useSpaceStore } from './spaceStore'
 import NewSpaceDialog from './NewSpaceDialog'
 import SpaceMenu from './SpaceMenu'
+import { useMotionTrack } from './spaceMotion'
 import styles from './SpaceSwitcher.module.css'
 
 /*
@@ -13,13 +14,15 @@ import styles from './SpaceSwitcher.module.css'
  * how the nav labels already behave.
  *
  * The swipe gesture itself lives on the rail (see Sidebar.tsx) so the whole
- * column is the target rather than this block; `dragX` is the live finger
- * offset it hands back for the strip to track.
+ * column is the target rather than this block. The strip registers as a motion
+ * track and its transform is written directly by the animation loop — never
+ * from React — so a gesture doesn't re-render this component per wheel event.
  */
-export default function SpaceSwitcher({ dragX }: { dragX: number }) {
+export default function SpaceSwitcher() {
   const spaces = useSpaces()
   const index = useActiveSpaceIndex()
   const enterSpace = useSpaceStore(s => s.enterSpace)
+  const stripRef = useMotionTrack('strip')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -38,10 +41,7 @@ export default function SpaceSwitcher({ dragX }: { dragX: number }) {
         aria-label="Spaces — swipe the sidebar with two fingers, or press Cmd+Option+Arrow"
       >
         <div className={styles.viewport}>
-          <div
-            className={[styles.strip, dragX !== 0 ? styles.stripDragging : ''].join(' ')}
-            style={{ transform: `translateX(calc(${-index * 100}% + ${dragX}px))` }}
-          >
+          <div className={styles.strip} ref={stripRef}>
             {spaces.map(space => {
               const isActive = space.id === active?.id
               return (
