@@ -59,6 +59,10 @@ export async function streamTutor(args: StreamTutorArgs): Promise<void> {
         message: args.message,
         session_id: args.conversationId ?? null,
       course_id: args.courseId ?? undefined,
+        // So "today" in the tutor's context means the student's today, not the
+        // edge function's UTC. The server falls back to UTC if this is absent
+        // or unparseable, which is what a headless caller gets.
+        time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
       }),
       signal: args.signal,
     })

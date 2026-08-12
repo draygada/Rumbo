@@ -22,6 +22,13 @@ import { runShortcut } from '../_shared/metadata-shortcut.ts'
 import { retrieveV4, type RetrievedSource } from '../_shared/retrieval-v4.ts'
 import { generateAnswer } from '../_shared/answer-v4.ts'
 import { anthropicTextStream, SONNET_MODEL } from '../_shared/anthropic-stream.ts'
+import {
+  TUTOR_PERSONA,
+  EXPLORATION_SUFFIX,
+  CROSS_COURSE_SUFFIX,
+  buildLearnerContext,
+} from '../_shared/tutor-persona.ts'
+import { createAdminClient } from '../_shared/supabase-admin.ts'
 
 interface TutorRequest {
   user_id: string
@@ -30,6 +37,8 @@ interface TutorRequest {
   /** '<course_id>' to scope this turn to one class, or 'all' for everything. */
   course_id?: string | null
   prior_turns?: PriorTurn[]
+  /** IANA zone from the browser, so "today" means the student's today. */
+  time_zone?: string | null
 }
 
 interface SourceOut {
@@ -44,38 +53,32 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/**
+ * The student's given name, for the learner block.
+ *
+ * Read server-side from public.users rather than trusted from the request, so
+ * a headless caller (the eval harness) gets the same context the app does.
+ * Fail-soft throughout: an answer must never be lost to a name lookup.
+ */
+async function fetchFirstName(userId: string): Promise<string | null> {
+  try {
+    const db = createAdminClient()
+    const { data, error } = await db
+      .from('users')
+      .select('first_name')
+      .eq('id', userId)
+      .maybeSingle()
+    if (error) return null
+    return (data?.first_name as string | null) ?? null
+  } catch {
+    return null
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Tutor persona + formatters — replicated faithfully from answer-v4.ts, which
-// does NOT export TUTOR_PERSONA / formatFlatSources / formatGroupedByCourse.
-// Keep in sync with _shared/answer-v4.ts.
-// ---------------------------------------------------------------------------
 
-const TUTOR_PERSONA = `You are Rumbo, a personal tutor for a specific college student.
 
-You have ACCESS to the student's own coursework (Canvas assignments, lectures, syllabi, files) via the RETRIEVED CONTEXT below. Everything you claim about the student's classes MUST be grounded in that context — never invent professor names, week numbers, assignment titles, or concept definitions that aren't there.
 
-Voice:
-- Warm graduate student at a good school. Confident but not showy. Considered, not stiff.
-- Speak directly. Second person, contractions, sentence fragments where they land.
-- Never open with empty affirmations ("Great question!", "That's a really interesting thought!").
-- Never end with unearned encouragement ("You've got this!").
-- When you don't know, say so — plainly. "I don't see this in your Week 6 material — do you want me to look at Week 7?" Do NOT invent to fill space.
-
-Pedagogy:
-- Match the student's framing to their professor's framing when the retrieved context reveals it (COVERS.definition, COVERS.excerpt).
-- Mixed-modal: sometimes explain directly, sometimes ask one guiding question, sometimes give an example. Not relentlessly Socratic — that grates.
-- Sequence-safe: if the student is in Week 6, don't reference Week 10 material as if they've seen it.
-- Never produce submittable work: essays, code, filled-in problem sets, discussion posts. If asked, decline and offer to help them think through it instead.
-
-Cite sources by their titles inline where useful. Don't fabricate citations.`
-
-const EXPLORATION_SUFFIX = `
-
-For this exploration turn: prioritize CONNECTIONS the student may not have noticed — how this concept links to material in other retrieved sources, what it enables, what it depends on. Still stay grounded in the retrieved context.`
-
-const CROSS_COURSE_SUFFIX = `
-
-For this cross-course turn: the RETRIEVED CONTEXT is grouped by course with --- headers. Draw explicit comparisons across courses when the material supports it. If the connection is a stretch, say so honestly rather than force a parallel.`
 
 function formatFlatSources(sources: RetrievedSource[]): string {
   if (sources.length === 0) return '(no retrieved context)'
@@ -132,7 +135,11 @@ async function streamRetrievalAnswer(
   query: string,
   sources: RetrievedSource[],
   send: (event: string, data: unknown) => void,
+  learnerContext: string,
 ): Promise<{ answer: string; model_used: string }> {
+  // Same block shape answer-v4 uses, so the streamed and non-streamed paths
+  // hand the model identical context.
+  const learnerBlock = learnerContext ? `\nLEARNER CONTEXT:\n${learnerContext}\n` : ''
   let system = TUTOR_PERSONA
   let userText: string
   let temperature = 0.4
@@ -141,15 +148,14 @@ async function streamRetrievalAnswer(
   if (mode === 'exploration') {
     system = TUTOR_PERSONA + EXPLORATION_SUFFIX
     temperature = 0.5
-    userText = `QUERY (exploration): ${query}\n\nRETRIEVED CONTEXT:\n${formatFlatSources(sources)}`
+    userText = `QUERY (exploration): ${query}\n${learnerBlock}\nRETRIEVED CONTEXT:\n${formatFlatSources(sources)}`
   } else if (mode === 'cross_course') {
     system = TUTOR_PERSONA + CROSS_COURSE_SUFFIX
     temperature = 0.4
     maxTokens = 1600
-    userText = `QUERY (cross-course): ${query}\n\nRETRIEVED CONTEXT (grouped by course):\n${formatGroupedByCourse(sources)}`
+    userText = `QUERY (cross-course): ${query}\n${learnerBlock}\nRETRIEVED CONTEXT (grouped by course):\n${formatGroupedByCourse(sources)}`
   } else {
-    // tutoring — learnerContext is null for V0, so the learner block is empty.
-    userText = `QUERY: ${query}\n\nRETRIEVED CONTEXT:\n${formatFlatSources(sources)}`
+    userText = `QUERY: ${query}\n${learnerBlock}\nRETRIEVED CONTEXT:\n${formatFlatSources(sources)}`
   }
 
   const streamed = await anthropicTextStream({
@@ -182,11 +188,17 @@ async function runPipeline(
 ): Promise<{ answer: string; model_used: string }> {
   const sessionId = body.session_id ?? null
 
-  // Stage 1: query rewriter
-  const rewritten = await rewriteQuery({
-    currentMessage: body.message,
-    priorTurns: body.prior_turns ?? [],
-  })
+  // Stage 1: query rewriter, alongside the learner lookup. Concurrent because
+  // the name is independent of everything the rewriter does, so it costs no
+  // added latency.
+  const [rewritten, firstName] = await Promise.all([
+    rewriteQuery({
+      currentMessage: body.message,
+      priorTurns: body.prior_turns ?? [],
+    }),
+    fetchFirstName(body.user_id),
+  ])
+  const learnerContext = buildLearnerContext({ firstName, timeZone: body.time_zone })
 
   // Stage 2: router
   const route = await routeQuery(rewritten.query)
@@ -222,7 +234,7 @@ async function runPipeline(
         send('token', { delta: retrieval.clarifyingQuestion })
         return { answer: retrieval.clarifyingQuestion, model_used: 'none' }
       }
-      return await streamRetrievalAnswer('tutoring', rewritten.query, retrieval.sources, send)
+      return await streamRetrievalAnswer('tutoring', rewritten.query, retrieval.sources, send, learnerContext)
     }
 
     // Non-empty shortcut → lookup answer (single-shot, non-streamed).
@@ -291,7 +303,7 @@ async function runPipeline(
     return { answer: retrieval.clarifyingQuestion, model_used: 'none' }
   }
 
-  return await streamRetrievalAnswer(learningMode, rewritten.query, retrieval.sources, send)
+  return await streamRetrievalAnswer(learningMode, rewritten.query, retrieval.sources, send, learnerContext)
 }
 
 // ---------------------------------------------------------------------------

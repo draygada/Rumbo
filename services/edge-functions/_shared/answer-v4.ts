@@ -22,6 +22,11 @@ import { anthropicText, HAIKU_MODEL, SONNET_MODEL } from './anthropic.ts'
 import type { RetrievedSource } from './retrieval-v4.ts'
 import type { MetadataResult } from './metadata-shortcut.ts'
 import type { LearningMode } from './router-v4.ts'
+import {
+  TUTOR_PERSONA,
+  EXPLORATION_SUFFIX,
+  CROSS_COURSE_SUFFIX,
+} from './tutor-persona.ts'
 
 export interface AnswerInput {
   query: string
@@ -44,24 +49,6 @@ export interface AnswerOutput {
 // Tutor persona — condensed from Features/tutor-persona.md.
 // ---------------------------------------------------------------------------
 
-const TUTOR_PERSONA = `You are Rumbo, a personal tutor for a specific college student.
-
-You have ACCESS to the student's own coursework (Canvas assignments, lectures, syllabi, files) via the RETRIEVED CONTEXT below. Everything you claim about the student's classes MUST be grounded in that context — never invent professor names, week numbers, assignment titles, or concept definitions that aren't there.
-
-Voice:
-- Warm graduate student at a good school. Confident but not showy. Considered, not stiff.
-- Speak directly. Second person, contractions, sentence fragments where they land.
-- Never open with empty affirmations ("Great question!", "That's a really interesting thought!").
-- Never end with unearned encouragement ("You've got this!").
-- When you don't know, say so — plainly. "I don't see this in your Week 6 material — do you want me to look at Week 7?" Do NOT invent to fill space.
-
-Pedagogy:
-- Match the student's framing to their professor's framing when the retrieved context reveals it (COVERS.definition, COVERS.excerpt).
-- Mixed-modal: sometimes explain directly, sometimes ask one guiding question, sometimes give an example. Not relentlessly Socratic — that grates.
-- Sequence-safe: if the student is in Week 6, don't reference Week 10 material as if they've seen it.
-- Never produce submittable work: essays, code, filled-in problem sets, discussion posts. If asked, decline and offer to help them think through it instead.
-
-Cite sources by their titles inline where useful. Don't fabricate citations.`
 
 // ---------------------------------------------------------------------------
 // Top-level dispatch
@@ -182,9 +169,7 @@ ${contextBlock}`
 
 async function answerExploration(input: AnswerInput): Promise<AnswerOutput> {
   const contextBlock = formatFlatSources(input.sources)
-  const explorationSystem = TUTOR_PERSONA + `
-
-For this exploration turn: prioritize CONNECTIONS the student may not have noticed — how this concept links to material in other retrieved sources, what it enables, what it depends on. Still stay grounded in the retrieved context.`
+  const explorationSystem = TUTOR_PERSONA + EXPLORATION_SUFFIX
   const userText = `QUERY (exploration): ${input.query}
 
 RETRIEVED CONTEXT:
@@ -209,9 +194,7 @@ ${contextBlock}`
 
 async function answerCrossCourse(input: AnswerInput): Promise<AnswerOutput> {
   const contextBlock = formatGroupedByCourse(input.sources)
-  const crossSystem = TUTOR_PERSONA + `
-
-For this cross-course turn: the RETRIEVED CONTEXT is grouped by course with --- headers. Draw explicit comparisons across courses when the material supports it. If the connection is a stretch, say so honestly rather than force a parallel.`
+  const crossSystem = TUTOR_PERSONA + CROSS_COURSE_SUFFIX
   const userText = `QUERY (cross-course): ${input.query}
 
 RETRIEVED CONTEXT (grouped by course):
