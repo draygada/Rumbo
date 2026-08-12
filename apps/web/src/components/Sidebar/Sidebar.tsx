@@ -10,16 +10,14 @@ import {
   useSpaces, useActiveSpace, useActiveSpaceIndex, useApplySpaceTheme,
 } from '../../spaces/useSpaces'
 import {
-  ChatIcon, TasksIcon, CoursesIcon, SettingsIcon, UserIcon, BrainIcon,
+  ChatIcon, TasksIcon, CoursesIcon, SettingsIcon, UserIcon,
 } from '../icons/Icons'
 import styles from './Sidebar.module.css'
 
-// Brain and Tutor exist only on this branch (the design-spec branch was cut
-// from the pre-pivot codebase), so they're added to the rail here rather than
-// coming across in the port.
+// Brain is intentionally not in the rail. The /brain route still works for
+// direct links — it's just not surfaced while the demo focuses on chat.
 const PRIMARY = [
   { to: '/home', label: 'Chat', icon: ChatIcon },
-  { to: '/brain', label: 'Brain', icon: BrainIcon },
   { to: '/tasks', label: 'Tasks', icon: TasksIcon },
   { to: '/courses', label: 'Courses', icon: CoursesIcon },
 ]
@@ -36,14 +34,13 @@ export default function Sidebar() {
   const activeSpace = useActiveSpace()
   useApplySpaceTheme(activeSpace)
 
-  // The two-finger swipe listens on the WHOLE rail, not just the switcher
-  // block. Scoped to the switcher it was a ~64x46px target you had to find;
-  // the rail is the full height of the window and is what "swipe in the
-  // taskbar" actually means.
+  // The two-finger swipe listens on the window. Scoped to the rail it was a
+  // 64px-wide target you had to aim the pointer at before the gesture did
+  // anything, which is not what "swipe to another space" should mean.
   const spaces = useSpaces()
   const spaceIndex = useActiveSpaceIndex()
   const enterSpace = useSpaceStore(s => s.enterSpace)
-  const { ref: railRef } = useSpaceSwipe<HTMLElement>({
+  useSpaceSwipe({
     count: spaces.length,
     index: spaceIndex,
     onChange: next => {
@@ -78,7 +75,7 @@ export default function Sidebar() {
   }, [menuOpen])
 
   return (
-    <aside className={styles.rail} data-rail ref={railRef}>
+    <aside className={styles.rail} data-rail>
       <NavLink to="/home" className={styles.brand} aria-label="Rumbo home">
         <span className={styles.brandMark}>
           <RumboMark size={30} variant="anim" hubR={6} />

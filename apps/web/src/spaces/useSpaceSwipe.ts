@@ -57,9 +57,7 @@ interface Options {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
-export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }: Options) {
-  const ref = useRef<T | null>(null)
-
+export function useSpaceSwipe({ count, index, onChange }: Options) {
   // Live props for the listener and the loop, which are bound once.
   const live = useRef({ count, index, onChange })
   live.current = { count, index, onChange }
@@ -82,11 +80,41 @@ export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }:
   const ensureLoopRef = useRef<() => void>(() => {})
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
-
     const s = sim.current
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduceQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+    // Read live rather than once: the setting can be toggled mid-session, and
+    // capturing it at mount made the behaviour depend on when the app loaded.
+    const reduced = () => reduceQuery.matches
+
+    // What to DRAW. Under reduced motion the gesture is still tracked exactly
+    // as normal — it just doesn't render the in-between positions, so the
+    // switch reads as a cut rather than a slide. Tracking and drawing were
+    // previously conflated here, which snapped `pos` back to the rounded space
+    // on every event and meant the position could never accumulate past the
+    // halfway line: the swipe was dead outright for anyone with Reduce Motion
+    // turned on.
+    const drawPos = () => (reduced() ? live.current.index : sim.current.pos)
+
+    /**
+     * Is this event inside something that legitimately scrolls sideways (a wide
+     * table, a code block)? Those keep their own scrolling. Computed once per
+     * gesture — walking the tree with getComputedStyle on every wheel event at
+     * 120Hz would cost more than the animation.
+     */
+    function inHorizontalScroller(target: EventTarget | null): boolean {
+      let el = target instanceof Element ? target : null
+      while (el && el !== document.body) {
+        const overflowX = getComputedStyle(el).overflowX
+        if (
+          (overflowX === 'auto' || overflowX === 'scroll') &&
+          el.scrollWidth > el.clientWidth + 1
+        ) {
+          return true
+        }
+        el = el.parentElement
+      }
+      return false
+    }
 
     function frame(now: number) {
       const st = sim.current
@@ -94,6 +122,15 @@ export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }:
       st.lastFrame = now
 
       if (!st.gesturing) {
+        // Reduced motion: arrive immediately instead of springing.
+        if (reduced()) {
+          st.pos = st.target
+          st.vel = 0
+          paintTracks(live.current.index, live.current.index)
+          st.running = false
+          return
+        }
+
         // Damped spring toward the committed space. Seeded with whatever
         // velocity the fingers left behind, so release is continuous.
         const displacement = st.pos - st.target
@@ -104,13 +141,13 @@ export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }:
         if (Math.abs(st.pos - st.target) < REST_POS && Math.abs(st.vel) < REST_VEL) {
           st.pos = st.target
           st.vel = 0
-          paintTracks(st.pos, live.current.index)
+          paintTracks(drawPos(), live.current.index)
           st.running = false
           return
         }
       }
 
-      paintTracks(st.pos, live.current.index)
+      paintTracks(drawPos(), live.current.index)
       st.raf = requestAnimationFrame(frame)
     }
 
@@ -145,19 +182,23 @@ export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }:
     function onWheel(e: WheelEvent) {
       // Vertical intent — leave it to the page.
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
-      e.preventDefault()
 
       const st = sim.current
       const { count: n, onChange: change } = live.current
       if (n <= 1) return
 
       if (!st.gesturing) {
+        // Decided once per gesture, on the first event: a sideways-scrolling
+        // table or code block keeps its own scrolling.
+        if (inHorizontalScroller(e.target)) return
         st.gesturing = true
         // Anchor to the nearest whole space so a gesture started mid-settle
         // still moves exactly one space.
         st.gestureStart = clamp(Math.round(st.pos), 0, n - 1)
         st.lastEventTs = e.timeStamp - 8
       }
+
+      e.preventDefault()
 
       if (st.endTimer) clearTimeout(st.endTimer)
       st.endTimer = setTimeout(endGesture, GESTURE_END_MS)
@@ -189,18 +230,17 @@ export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }:
       const crossed = clamp(Math.round(st.pos), 0, n - 1)
       if (crossed !== live.current.index) change(crossed)
 
-      if (reduced) {
-        st.pos = crossed
-        st.vel = 0
-      }
       ensureLoop()
     }
 
-    el.addEventListener('wheel', onWheel, { passive: false })
-    paintTracks(s.pos, live.current.index)
+    // Bound to the window, not the rail. Requiring the pointer to sit inside a
+    // 64px strip made the gesture something you had to aim for; a two-finger
+    // swipe anywhere that isn't a sideways scroller now changes space.
+    window.addEventListener('wheel', onWheel, { passive: false })
+    paintTracks(reduced() ? live.current.index : s.pos, live.current.index)
 
     return () => {
-      el.removeEventListener('wheel', onWheel)
+      window.removeEventListener('wheel', onWheel)
       const st = sim.current
       if (st.endTimer) clearTimeout(st.endTimer)
       if (st.raf) cancelAnimationFrame(st.raf)
@@ -217,7 +257,7 @@ export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }:
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       st.pos = index
       st.vel = 0
-      paintTracks(st.pos, index)
+      paintTracks(index, index)
       return
     }
     ensureLoopRef.current()
@@ -238,6 +278,4 @@ export function useSpaceSwipe<T extends HTMLElement>({ count, index, onChange }:
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  return { ref }
 }
