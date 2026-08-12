@@ -20,7 +20,8 @@ import { routeQuery } from '../_shared/router-v4.ts'
 import { runShortcut } from '../_shared/metadata-shortcut.ts'
 import { retrieveV4 } from '../_shared/retrieval-v4.ts'
 import { generateAnswer } from '../_shared/answer-v4.ts'
-import { captureLearnerSignals, type SignalConcept } from '../_shared/learner-signals.ts'
+import { captureLearnerSignals, signalTargets, type SignalConcept } from '../_shared/learner-signals.ts'
+import { runInBackground } from '../_shared/edge-background.ts'
 
 interface TutorRequest {
   user_id: string
@@ -90,6 +91,10 @@ async function handle(req: Request): Promise<Response> {
     // Concepts the turn resolved to, for Stage 9b. Stays empty on the lookup
     // and small-talk paths, which never retrieve.
     let resolvedConcepts: SignalConcept[] = []
+    // Node ids the answer was built from, so Stage 9b can walk COVERS when
+    // concept resolution came back empty. A Chunk carries no COVERS edge —
+    // its parent doc does — hence parent_id where present.
+    let signalSourceIds: string[] = []
 
     if (route.learning_mode === 'lookup' && route.template) {
       const t2b = Date.now()
@@ -116,7 +121,10 @@ async function handle(req: Request): Promise<Response> {
           courseScope: body.course_id ?? undefined,
         })
         timing.stage3to7_retrieval = Date.now() - t3
-        resolvedConcepts = retrieval.resolvedConcepts
+        resolvedConcepts = signalTargets(retrieval)
+        signalSourceIds = [...new Set(
+          retrieval.sources.map(s => s.parent_id || s.source_id).filter(Boolean),
+        )]
         const t8 = Date.now()
         const answer = await generateAnswer({
           query: rewritten.query,
@@ -206,7 +214,10 @@ async function handle(req: Request): Promise<Response> {
         courseScope: body.course_id ?? undefined,
       })
       timing.stage3to7_retrieval = Date.now() - t3
-      resolvedConcepts = retrieval.resolvedConcepts
+      resolvedConcepts = signalTargets(retrieval)
+        signalSourceIds = [...new Set(
+          retrieval.sources.map(s => s.parent_id || s.source_id).filter(Boolean),
+        )]
 
       const t8 = Date.now()
       const answer = await generateAnswer({
@@ -240,8 +251,9 @@ async function handle(req: Request): Promise<Response> {
 
     timing.total = Date.now() - t0
 
-    // Stage 9: persistence (fire-and-forget so we don't block the response)
-    void persistTurn({
+    // Stage 9: persistence (backgrounded so we don't block the response —
+    // see edge-background.ts for why a bare `void` silently loses the work)
+    runInBackground(persistTurn({
       userId: body.user_id,
       sessionId: body.session_id ?? null,
       queryRaw: body.message,
@@ -251,18 +263,22 @@ async function handle(req: Request): Promise<Response> {
       modelUsed: response.model_used,
       sourceCount: response.sources.length,
       timingMs: timing,
-    }).catch(err => console.warn('[tutor-v4] persist failed:', err))
+    }), 'tutor-v4 persistTurn')
 
-    // Stage 9b: learner signal capture, also fire-and-forget. Shared with
+    // Stage 9b: learner signal capture, also backgrounded. Shared with
     // tutor-v4-stream so both endpoints write the same corpus.
-    void captureLearnerSignals({
-      userId: body.user_id,
-      sessionId: body.session_id ?? null,
-      turnId: null,
-      userQuestion: body.message,
-      assistantAnswer: response.answer,
-      concepts: resolvedConcepts,
-    }).catch(err => console.warn('[tutor-v4] signal capture failed:', err))
+    runInBackground(
+      captureLearnerSignals({
+        userId: body.user_id,
+        sessionId: body.session_id ?? null,
+        turnId: null,
+        userQuestion: body.message,
+        assistantAnswer: response.answer,
+        concepts: resolvedConcepts,
+        sourceIds: signalSourceIds,
+      }),
+      'tutor-v4 signal capture',
+    )
 
     return jsonResponse(response)
   } catch (err) {

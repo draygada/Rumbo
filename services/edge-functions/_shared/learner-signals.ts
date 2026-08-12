@@ -23,6 +23,7 @@
 
 import { createAdminClient } from './supabase-admin.ts'
 import { geminiClassifyJson, type GeminiJsonSchema } from './gemini.ts'
+import { neo4j } from './neo4j.ts'
 
 /** A concept the turn actually resolved to — the only valid signal target. */
 export interface SignalConcept {
@@ -72,25 +73,104 @@ target_id must be one of the concept ids from the retrieved context; use the con
 For a preference signal, put the style the student asked for in "note" — one of:
 analogy, worked_example, step_by_step, visual, concrete_case. The aggregator reads it.`
 
+/**
+ * Which concepts a turn's signals should attach to.
+ *
+ * Prefers what the query resolved to — that is the concept the student was
+ * actually asking about. Falls back to what the returned sources cover, which
+ * is what they were actually shown.
+ *
+ * The fallback is the point: resolvedConcepts requires either a router
+ * concept_hint that name-matches or a query embedding whose nearest Concept
+ * clears score > 0.5, and neither is guaranteed. Without this, a turn could
+ * retrieve twelve good sources, answer well, and record nothing.
+ */
+export function signalTargets(retrieval: {
+  resolvedConcepts: SignalConcept[]
+  coveredConcepts: SignalConcept[]
+}): SignalConcept[] {
+  return retrieval.resolvedConcepts.length > 0
+    ? retrieval.resolvedConcepts
+    : retrieval.coveredConcepts
+}
+
 export interface CaptureArgs {
   userId: string
   sessionId: string | null
   turnId: string | null
   userQuestion: string
   assistantAnswer: string
-  /** Concepts the retrieval actually resolved. Empty ⇒ nothing to attach to. */
+  /** Concepts the retrieval actually resolved. May legitimately be empty. */
   concepts: SignalConcept[]
+  /**
+   * Node ids of the documents the answer was actually built from — for a
+   * chunk, its parent doc, since COVERS never attaches to a Chunk.
+   * Used to recover targets when `concepts` is empty (see below).
+   */
+  sourceIds?: string[]
+}
+
+/**
+ * Recover concept targets from the documents the answer cited.
+ *
+ * resolveConcepts (retrieval Stage 3) is a vector lookup gated on cosine
+ * `score > 0.5`, and it returns [] outright when the Cohere embed fails. A
+ * perfectly good tutoring turn — one that retrieved the right lecture and
+ * answered from it — routinely resolves zero concepts. Skipping capture on
+ * that basis threw away most of the corpus.
+ *
+ * The retrieved documents know better: each carries COVERS edges to the
+ * concepts it teaches. Walking backwards from the sources is a cheaper and
+ * more faithful answer to "what was this turn about" than a similarity
+ * threshold on the raw question. Ordered by COVERS weight so the concepts a
+ * document primarily teaches win over ones it mentions in passing.
+ *
+ * Runs off the response path, so its round-trip costs the student nothing.
+ */
+async function conceptsFromSources(
+  userId: string,
+  sourceIds: string[],
+): Promise<SignalConcept[]> {
+  if (sourceIds.length === 0) return []
+  try {
+    const rows = await neo4j().run<{ id: string; name: string }>(
+      `MATCH (s { user_id: $userId })-[cov:COVERS]->(c:Concept { user_id: $userId })
+       WHERE s.id IN $sourceIds
+       WITH c, max(coalesce(cov.weight, 0)) AS w
+       RETURN c.id AS id, c.name AS name
+       ORDER BY w DESC
+       LIMIT 6`,
+      { userId, sourceIds: sourceIds.slice(0, 40) },
+    )
+    return rows
+      .filter(r => r.id && r.name)
+      .map(r => ({ id: r.id, name: r.name }))
+  } catch (err) {
+    console.warn('[learner-signals] COVERS fallback failed:', err)
+    return []
+  }
 }
 
 export async function captureLearnerSignals(args: CaptureArgs): Promise<void> {
   try {
-    // No resolved concept means no valid target_id. Pinning a signal to a
-    // chunk or a guess would poison the aggregate, so skip the turn instead —
-    // a sparse honest log beats a dense wrong one.
-    if (args.concepts.length === 0) return
     if (!args.userQuestion.trim() || !args.assistantAnswer.trim()) return
 
-    const conceptList = args.concepts
+    // Prefer the concepts retrieval resolved; fall back to what the cited
+    // documents cover. Only if BOTH are empty is there no valid target_id —
+    // pinning a signal to a guess would poison the aggregate, so skip the turn
+    // instead. A sparse honest log beats a dense wrong one.
+    let concepts = args.concepts
+    if (concepts.length === 0) {
+      concepts = await conceptsFromSources(args.userId, args.sourceIds ?? [])
+    }
+    if (concepts.length === 0) {
+      console.log(
+        `[learner-signals] skipped: no concept target (sources=${args.sourceIds?.length ?? 0})`,
+      )
+      return
+    }
+
+    const conceptList = concepts
       .slice(0, 6)
       .map(c => `${c.id}: ${c.name}`)
       .join('\n')
@@ -102,7 +182,7 @@ export async function captureLearnerSignals(args: CaptureArgs): Promise<void> {
       maxTokens: 400,
     })
 
-    const validIds = new Set(args.concepts.map(c => c.id))
+    const validIds = new Set(concepts.map(c => c.id))
     const rows = (parsed?.signals ?? [])
       // The model occasionally invents a plausible-looking id. An aggregate
       // built on ids that match no node is worse than a missing signal.
@@ -119,6 +199,13 @@ export async function captureLearnerSignals(args: CaptureArgs): Promise<void> {
         confidence: s.intensity,
       }))
 
+    // One line per turn, enough to tell the three failure modes apart from the
+    // dashboard without adding a read path to a server-only table: classifier
+    // returned nothing (emitted=0), model invented ids (emitted>0, kept=0), or
+    // the insert itself failed (kept>0 plus an insert warning).
+    console.log(
+      `[learner-signals] concepts=${concepts.length} emitted=${parsed?.signals?.length ?? 0} kept=${rows.length}`,
+    )
     if (rows.length === 0) return
 
     const { error } = await createAdminClient().from('learner_signals').insert(rows)

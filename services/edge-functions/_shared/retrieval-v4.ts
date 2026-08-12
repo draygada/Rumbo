@@ -73,6 +73,18 @@ export interface RetrievedSource {
 export interface RetrievalResult {
   sources: RetrievedSource[]
   resolvedConcepts: Array<{ id: string; name: string }>
+  /**
+   * Concepts the RETURNED SOURCES actually cover, as opposed to the concepts
+   * the query resolved to. Distinct on purpose: resolvedConcepts is intent
+   * ("what did they ask about"), this is content ("what were they shown").
+   *
+   * Exists because resolvedConcepts is empty far more often than you'd expect
+   * — it needs either a router concept_hint that name-matches, or a query
+   * embedding whose nearest Concept clears score > 0.5. Neither is guaranteed,
+   * and a turn can retrieve twelve good sources while resolving zero concepts.
+   * Learner-signal capture keys off this so it isn't silently starved.
+   */
+  coveredConcepts: Array<{ id: string; name: string }>
   resolvedCourseCodes: string[]
   clarifyingQuestion: string | null   // set when we should ask instead of answer
 }
@@ -137,7 +149,7 @@ export async function retrieveV4(
   // fused result really is empty (see after Stage 6).
   if (resolvedConcepts.length === 0 && req.learningMode === 'cross_course') {
     return {
-      sources: [], resolvedConcepts: [], resolvedCourseCodes: [],
+      sources: [], resolvedConcepts: [], coveredConcepts: [], resolvedCourseCodes: [],
       clarifyingQuestion: `To trace this across your classes, I need a specific concept — like "linear regression" or "market segmentation". Which concept did you have in mind?`,
     }
   }
@@ -179,7 +191,7 @@ export async function retrieveV4(
   // answer from nothing. (Moved here from before the fan-out; see above.)
   if (fused.length === 0) {
     return {
-      sources: [], resolvedConcepts, resolvedCourseCodes,
+      sources: [], resolvedConcepts, coveredConcepts: [], resolvedCourseCodes,
       clarifyingQuestion: `I couldn't find that in your coursework. Do you have a specific concept or reading in mind?`,
     }
   }
@@ -223,8 +235,41 @@ export async function retrieveV4(
   return {
     sources,
     resolvedConcepts,
+    coveredConcepts: await conceptsCoveredBy(g, req.userId, sources),
     resolvedCourseCodes,
     clarifyingQuestion: null,
+  }
+}
+
+/**
+ * Which concepts the returned sources cover, heaviest edge first.
+ *
+ * One extra Cypher round-trip per retrieval turn. Lane B already knows this
+ * for its own hits, but the final source list is an RRF fusion of both lanes
+ * and Lane A (BM25 + vector) carries no concept association at all — so the
+ * only way to get it for the actual result set is to ask after the fact.
+ */
+async function conceptsCoveredBy(
+  g: Neo4jClient,
+  userId: string,
+  sources: RetrievedSource[],
+): Promise<Array<{ id: string; name: string }>> {
+  const sourceIds = sources.map(s => s.source_id).filter(Boolean)
+  if (sourceIds.length === 0) return []
+  try {
+    const rows = await g.run(
+      `MATCH (s)-[cov:COVERS]->(c:Concept { user_id: $userId })
+       WHERE s.id IN $sourceIds
+       WITH c, sum(coalesce(cov.weight, 1.0)) AS w
+       RETURN c.id AS id, c.name AS name
+       ORDER BY w DESC
+       LIMIT 6`,
+      { userId, sourceIds },
+    )
+    return rows.map(r => ({ id: r.id as string, name: r.name as string }))
+  } catch {
+    // Never fail retrieval over this — it only feeds signal capture.
+    return []
   }
 }
 

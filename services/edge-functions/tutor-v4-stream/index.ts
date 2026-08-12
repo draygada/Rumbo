@@ -29,7 +29,8 @@ import {
   buildLearnerContext,
 } from '../_shared/tutor-persona.ts'
 import { createAdminClient } from '../_shared/supabase-admin.ts'
-import { captureLearnerSignals, type SignalConcept } from '../_shared/learner-signals.ts'
+import { captureLearnerSignals, signalTargets, type SignalConcept } from '../_shared/learner-signals.ts'
+import { runInBackground } from '../_shared/edge-background.ts'
 
 interface TutorRequest {
   user_id: string
@@ -116,6 +117,14 @@ function formatGroupedByCourse(sources: RetrievedSource[]): string {
   return blocks.join('\n')
 }
 
+/**
+ * Node ids the signal capture can walk COVERS from. A Chunk never carries a
+ * COVERS edge — its parent doc does — so resolve to parent_id where present.
+ */
+function signalSourceIds(sources: RetrievedSource[]): string[] {
+  return [...new Set(sources.map(s => s.parent_id || s.source_id).filter(Boolean))]
+}
+
 function toSourceOut(s: RetrievedSource): SourceOut {
   return {
     source_type: s.source_type,
@@ -186,7 +195,7 @@ async function streamRetrievalAnswer(
 async function runPipeline(
   body: TutorRequest,
   send: (event: string, data: unknown) => void,
-): Promise<{ answer: string; model_used: string; concepts: SignalConcept[] }> {
+): Promise<{ answer: string; model_used: string; concepts: SignalConcept[]; sourceIds: string[] }> {
   const sessionId = body.session_id ?? null
 
   // Stage 1: query rewriter, alongside the learner lookup. Concurrent because
@@ -233,11 +242,17 @@ async function runPipeline(
       })
       if (retrieval.clarifyingQuestion) {
         send('token', { delta: retrieval.clarifyingQuestion })
-        return { answer: retrieval.clarifyingQuestion, model_used: 'none', concepts: retrieval.resolvedConcepts }
+        return {
+        answer: retrieval.clarifyingQuestion,
+        model_used: 'none',
+        concepts: signalTargets(retrieval),
+        sourceIds: signalSourceIds(retrieval.sources),
+      }
       }
       return {
         ...(await streamRetrievalAnswer('tutoring', rewritten.query, retrieval.sources, send, learnerContext)),
-        concepts: retrieval.resolvedConcepts,
+        concepts: signalTargets(retrieval),
+        sourceIds: signalSourceIds(retrieval.sources),
       }
     }
 
@@ -262,7 +277,7 @@ async function runPipeline(
       clarifyingQuestion: null,
     })
     send('token', { delta: answer.text })
-    return { answer: answer.text, model_used: answer.model_used, concepts: [] }
+    return { answer: answer.text, model_used: answer.model_used, concepts: [], sourceIds: [] }
   }
 
   if (route.learning_mode === 'small_talk') {
@@ -280,7 +295,7 @@ async function runPipeline(
       clarifyingQuestion: null,
     })
     send('token', { delta: answer.text })
-    return { answer: answer.text, model_used: answer.model_used, concepts: [] }
+    return { answer: answer.text, model_used: answer.model_used, concepts: [], sourceIds: [] }
   }
 
   // Full retrieval path (Stages 3-7 + streamed 8).
@@ -304,12 +319,18 @@ async function runPipeline(
 
   if (retrieval.clarifyingQuestion) {
     send('token', { delta: retrieval.clarifyingQuestion })
-    return { answer: retrieval.clarifyingQuestion, model_used: 'none', concepts: retrieval.resolvedConcepts }
+    return {
+        answer: retrieval.clarifyingQuestion,
+        model_used: 'none',
+        concepts: signalTargets(retrieval),
+        sourceIds: signalSourceIds(retrieval.sources),
+      }
   }
 
   return {
     ...(await streamRetrievalAnswer(learningMode, rewritten.query, retrieval.sources, send, learnerContext)),
-    concepts: retrieval.resolvedConcepts,
+    concepts: signalTargets(retrieval),
+    sourceIds: signalSourceIds(retrieval.sources),
   }
 }
 
@@ -351,21 +372,30 @@ Deno.serve(async (req) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       }
       try {
-        const { answer, model_used, concepts } = await runPipeline(body, send)
+        const { answer, model_used, concepts, sourceIds } = await runPipeline(body, send)
         send('done', { answer, model_used })
 
-        // Stage 9b — after `done`, never before. Deliberately not awaited: the
+        // Stage 9b — after `done`, never before, and never awaited: the
         // classifier is a second model call, and a learner signal is worth
-        // strictly less than getting the answer to the student. captureLearnerSignals
-        // swallows its own errors, so the catch here is belt-and-braces.
-        void captureLearnerSignals({
-          userId: body.user_id,
-          sessionId: body.session_id ?? null,
-          turnId: null,
-          userQuestion: body.message,
-          assistantAnswer: answer,
-          concepts,
-        }).catch(err => console.warn('[tutor-v4-stream] signal capture failed:', err))
+        // strictly less than getting the answer to the student.
+        //
+        // It must go through runInBackground, not a bare `void`. The `finally`
+        // below closes the stream on the next tick, which completes the
+        // response and lets the isolate be torn down — a plain floating promise
+        // is dropped before the Gemini call even opens a socket. That is why
+        // this table was empty despite the code being deployed.
+        runInBackground(
+          captureLearnerSignals({
+            userId: body.user_id,
+            sessionId: body.session_id ?? null,
+            turnId: null,
+            userQuestion: body.message,
+            assistantAnswer: answer,
+            concepts,
+            sourceIds,
+          }),
+          'tutor-v4-stream signal capture',
+        )
       } catch (err) {
         console.error('[tutor-v4-stream] fatal:', err)
         send('error', { error: errMsg(err) })
