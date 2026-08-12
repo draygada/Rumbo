@@ -20,6 +20,7 @@ import {
   type ManualCourse,
   type ManualCourseInput,
 } from '../../lib/manualCourses'
+import { useDemoMode, DEMO_PINNED_LABELS } from '../../lib/demoMode'
 import styles from './Settings.module.css'
 
 const TERM_SEASONS = ['Fall', 'Spring', 'Summer', 'Winter'] as const
@@ -64,6 +65,9 @@ export default function Settings() {
   const [manualCourses, setManualCourses] = useState<ManualCourse[]>([])
   const [showManualForm, setShowManualForm] = useState(false)
   const [manualInput, setManualInput] = useState<ManualCourseInput>(defaultManualInput)
+
+  const demoEnabled = useDemoMode(s => s.enabled)
+  const setDemoEnabled = useDemoMode(s => s.setEnabled)
 
   const calendarParam = searchParams.get('calendar')
 
@@ -354,6 +358,26 @@ export default function Settings() {
               </label>
             ))}
           </div>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Demo mode</h2>
+          <p className={styles.sectionDesc}>
+            Keeps {DEMO_PINNED_LABELS.join(' and ')} under Current even when their
+            term has ended. Everything else still follows real Canvas dates and
+            archive state — this only adds courses, it never archives a live one.
+          </p>
+          <label className={styles.demoRow}>
+            <input
+              type="checkbox"
+              className={styles.demoCheckbox}
+              checked={demoEnabled}
+              onChange={e => setDemoEnabled(e.target.checked)}
+            />
+            <span className={styles.demoLabel}>
+              Pin demo courses to Current
+            </span>
+          </label>
         </section>
 
       </div>

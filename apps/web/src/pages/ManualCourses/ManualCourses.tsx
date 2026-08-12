@@ -6,6 +6,7 @@ import { isCanvasCourseCurrent, termLabelFor, courseShortLabel } from '../../lib
 import { PlusIcon, EditIcon } from '../../components/icons/Icons'
 import CourseEditDialog from '../../components/CourseEditDialog/CourseEditDialog'
 import { useCourseOverrides, resolveCourseColor, resolveCourseName } from '../../lib/courseOverrides'
+import { useDemoMode, resolveIsCurrent } from '../../lib/demoMode'
 import styles from './ManualCourses.module.css'
 
 // A single unified course card, whether the underlying record came from
@@ -238,6 +239,9 @@ export default function ManualCourses() {
   const [message, setMessage] = useState<string | null>(null)
   const [tab, setTab] = useState<'current' | 'archive'>('current')
   const [editing, setEditing] = useState<{ courseId: string; derivedName: string } | null>(null)
+  // Read at RENDER time, not at fetch time, so toggling demo mode in Settings
+  // re-splits Current/Archive immediately instead of waiting for a refetch.
+  const demoEnabled = useDemoMode(s => s.enabled)
 
   const openEditor = (card: CourseCard, derivedName: string) =>
     setEditing({ courseId: card.courseId, derivedName })
@@ -254,12 +258,16 @@ export default function ManualCourses() {
   // Urgency order, so the one tile that gets double width is genuinely the
   // one you should look at first.
   const currentCards = useMemo(
-    () => scoped.filter(c => c.isCurrent).sort(sortByUrgency),
-    [scoped],
+    () => scoped
+      .filter(c => resolveIsCurrent(c.isCurrent, demoEnabled, c.courseCode, c.name))
+      .sort(sortByUrgency),
+    [scoped, demoEnabled],
   )
   const archiveCards = useMemo(
-    () => scoped.filter(c => !c.isCurrent).sort(sortByCode),
-    [scoped],
+    () => scoped
+      .filter(c => !resolveIsCurrent(c.isCurrent, demoEnabled, c.courseCode, c.name))
+      .sort(sortByCode),
+    [scoped, demoEnabled],
   )
 
   // Archive grouped into terms, newest first. Seventeen undifferentiated cards
