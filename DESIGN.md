@@ -40,7 +40,7 @@ Hub fills cycle through `[--ochre, --sage, --teal, #1E66CC]` by index (`cols[i %
 
 - Minimum size 24px. Below that, drop the satellites and keep only the 6 hubs + 5 spokes.
 - On dark backgrounds the mark stays as-is (the hub colors carry it); the wordmark switches to `--oninv`.
-- Wordmark: "Rumbo" in Space Grotesk 600, `letter-spacing: -0.03em`. Nav pairs a 44px mark with 19px text, `gap: 10px`. Footer uses 28px mark / 17px text.
+- Wordmark: "Rumbo" in Inter 600, `letter-spacing: -0.03em`. Nav pairs a 44px mark with 19px text, `gap: 10px`. Footer uses 28px mark / 17px text.
 - Never re-color the mark to a single flat color. The multicolor hubs are the identity.
 
 ### Animation variants
@@ -63,10 +63,10 @@ Build it in JS/TSX as a `<RumboMark size hubR satR lw variant />` component. Do 
 ```css
 :root{
   /* surfaces */
-  --base:   #F6F5F2;   /* page background — warm paper */
-  --base2:  #EBEAE5;   /* alternating section background */
+  --base:   #FAFAF9;   /* page background — near-white, a trace of warmth */
+  --base2:  #F0F0EE;   /* alternating section background */
   --card:   #FFFFFF;
-  --border: #E3E0D9;
+  --border: #E5E4E1;
 
   /* text */
   --text:   #1B1815;   /* near-black, warm */
@@ -93,7 +93,7 @@ Build it in JS/TSX as a `<RumboMark size hubR satR lw variant />` component. Do 
 
 ### Usage rules
 
-- **Warm neutrals do the work.** The page is paper (#F6F5F2) alternating with #EBEAE5. Only two background values across the whole page — do not introduce a third.
+- **Near-white neutrals do the work.** The page is #FAFAF9 alternating with #F0F0EE. Only two background values across the whole page — do not introduce a third. The warmth is deliberately faint: keep red-minus-blue at 1–3 levels on surfaces, enough to avoid a blue-grey cast without reading as cream.
 - **Terracotta `--terra` is the only accent used as UI accent.** Eyebrow labels, "RUMBO" speaker labels, active states, the primary link color in the graph particles.
 - **Sage / ochre / dblue / teal are semantic, not decorative.** They mean "a course/class space." Once a color is assigned to a course in a demo (e.g. CS 107 = teal, ECON 105 = dblue, MKTG 220 = ochre, EDUC 475 = sage) it must stay that color in every demo, legend, calendar block, and graph node on the page.
 - **Blue #1E66CC** appears in one place: the italic hero phrase and the 4th hub color. Treat it as a punctuation color, not a palette member.
@@ -106,10 +106,10 @@ Build it in JS/TSX as a `<RumboMark size hubR satR lw variant />` component. Do 
 
 Two families only.
 
-- **Space Grotesk** — everything: headings, body, UI. Weights 500 / 600 / 700.
+- **Inter** — everything: headings, body, UI. Weights 500 / 600 / 700.
 - **JetBrains Mono** — only inside the knowledge-graph canvas (concept and file labels). Not used in page chrome.
 
-Note: `--mono` is aliased to Space Grotesk on purpose. "Mono-styled" labels (eyebrows, tags) are Space Grotesk 700 with `letter-spacing: .08–.12em` and `text-transform: uppercase`, not an actual mono face. Keep that.
+Note: "mono-styled" labels (eyebrows, tags) are the UI face at 700 with `letter-spacing: .08–.12em` and `text-transform: uppercase`, not an actual mono face. Keep that. (`--font-mono` in index.css IS real JetBrains Mono and is for graph labels only — the two are different things.)
 
 | role | spec |
 |---|---|

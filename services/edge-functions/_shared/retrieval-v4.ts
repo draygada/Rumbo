@@ -112,9 +112,13 @@ export async function retrieveV4(
   // sends its course_id — that resolution is a round-trip whose answer we
   // already have, and `pinnedCourseIds` below would discard it anyway. Skip it:
   // it's an apoc regex scan across every Course node for this user.
+  // Started once and shared, not awaited here: resolveConcepts needs the same
+  // embedding, and handing it the promise keeps all three lookups concurrent
+  // while making exactly one Cohere call.
+  const queryEmbedPromise = embedQuery(req.query)
   const [queryEmbed, resolvedConcepts, courseIds] = await Promise.all([
-    embedQuery(req.query),
-    resolveConcepts(g, req),
+    queryEmbedPromise,
+    resolveConcepts(g, req, queryEmbedPromise),
     scopedCourse
       ? Promise.resolve([scopedCourse])
       : resolveCourseHint(g, req.userId, req.courseHint),
@@ -295,6 +299,20 @@ async function codesToIds(
 async function resolveConcepts(
   g: Neo4jClient,
   req: RetrievalRequest,
+  /**
+   * The query embedding, as a PROMISE rather than a value.
+   *
+   * This used to call cohereEmbedBatch itself, which meant every turn embedded
+   * the identical query string twice — once here and once in embedQuery — since
+   * both run inside the same Promise.all at the call site. Two Cohere requests,
+   * two round-trips, billed twice, byte-identical result.
+   *
+   * Taking the promise rather than an awaited value is what lets the caller
+   * keep them concurrent. Awaiting the embed first and passing the number[]
+   * would serialize this against the other lookups in that Promise.all and
+   * trade a duplicate call for added latency.
+   */
+  queryEmbed: Promise<number[] | null>,
 ): Promise<Array<{ id: string; name: string }>> {
   // If router extracted a concept_hint, use fuzzy name match first.
   const results: Array<{ id: string; name: string }> = []
@@ -313,9 +331,12 @@ async function resolveConcepts(
   }
   if (results.length > 0) return dedupById(results)
 
-  // Otherwise: vector similarity to query embedding
-  const [emb] = await cohereEmbedBatch([req.query], 'search_query')
-  if (!Array.isArray(emb) || emb.length !== COHERE_EMBED_DIM) return []
+  // Otherwise: vector similarity to query embedding. embedQuery has already
+  // validated the dimension and returns null when Cohere failed or gave back
+  // something unusable, which is the same "skip the vector path" signal the
+  // local length check used to produce.
+  const emb = await queryEmbed
+  if (emb === null) return []
   const rows = await g.run(
     `CALL db.index.vector.queryNodes('concept_embedding', $topK, $emb)
      YIELD node, score

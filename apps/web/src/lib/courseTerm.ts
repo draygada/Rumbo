@@ -60,6 +60,95 @@ export function courseTermEnd(payload: Record<string, unknown>): number | null {
   return parseAcademicYearRange(name) ?? parseAcademicYearRange(code)
 }
 
+/**
+ * The short, human name for a course: "Sp26-CS-146J-01" → "CS 146J".
+ *
+ * Lives here because stripping the term prefix is the same problem
+ * parseTermPrefix solves, and because three surfaces need the identical
+ * answer — the Courses page, the course-name lookup behind assignment cards
+ * and Tasks group headings, and the tutor's course list. They used to disagree.
+ *
+ * Falls back to the raw code, then a trimmed name, so an org shell with no
+ * parseable code ("SUMO Tutoring") still reads as itself.
+ */
+export function courseShortLabel(
+  code: string | null,
+  name: string,
+  /**
+   * Character cap applied to the NAME fallback only — never to a resolved
+   * code, which is short by construction. Off by default: a card heading that
+   * already line-clamps in CSS shouldn't also be cut mid-word. Callers
+   * rendering into a fixed-width chip or menu row pass a limit.
+   */
+  truncateNameTo?: number,
+): string {
+  const trimmedCode = code?.trim() ?? ''
+  if (trimmedCode) {
+    // Strip the term prefix FIRST. Without this the department matcher happily
+    // matches the term itself when it has two letters, so every Spring course
+    // came out as "SP 26" — "Sp26-CS-146J-01" matched Sp + 26. Single-letter
+    // terms (W26, F25) slipped through because the matcher wants 2+ letters,
+    // which is why this only showed up once Spring courses were selected.
+    const withoutTerm = trimmedCode.replace(/^(F|W|Sp|Su)\d{2}[-\s]*/i, '')
+    // "EDUC-475-01" → "EDUC 475"; "CS-146J-01" → "CS 146J"; "PWR-2PT-01" → "PWR 2PT"
+    //
+    // ANCHORED, and that anchor is load-bearing. Unanchored this matched a
+    // fragment out of the MIDDLE of prose: Canvas org shells set course_code to
+    // the full title, so "…for Incoming Undergraduates 2024-2025" matched
+    // "raduates" (the 8-char window before the digits) + "2024" and the course
+    // rendered as "RADUATES 2024".
+    const m = withoutTerm.match(/^([A-Za-z]{2,8})[-\s]?(\d{1,4}[A-Za-z]*)/)
+    if (m) return `${m[1].toUpperCase()} ${m[2].toUpperCase()}`
+    // Not a department+number. Fall through to the name rather than echoing a
+    // course_code that is really a title back at the reader.
+  }
+
+  const fallback = name?.trim() || trimmedCode || 'Untitled course'
+  if (truncateNameTo && fallback.length > truncateNameTo) {
+    return `${fallback.slice(0, truncateNameTo).trimEnd()}…`
+  }
+  return fallback
+}
+
+const SEASON_NAMES: Record<string, string> = {
+  f: 'Fall',
+  w: 'Winter',
+  sp: 'Spring',
+  su: 'Summer',
+}
+
+/**
+ * The term heading a course files under, for grouping the archive.
+ *
+ * `sortMs` orders the groups newest-first and is NOT the same as
+ * courseTermEnd: courses with no resolvable term still need a stable position
+ * (last), so this returns a sentinel rather than null.
+ */
+export function termLabelFor(
+  code: string | null,
+  canvasTerm: string | null,
+  name: string | null = null,
+): { label: string; sortMs: number } {
+  const prefix = code ? parseTermPrefix(code) : null
+  if (prefix) {
+    return { label: `${SEASON_NAMES[prefix.season]} ${prefix.year}`, sortMs: prefix.endMs }
+  }
+
+  // Canvas gives every un-termed shell the literal string "Default Term".
+  // Using that as a heading is worse than admitting we don't know.
+  const term = canvasTerm?.trim()
+  if (term && term.toLowerCase() !== 'default term') {
+    return { label: term, sortMs: parseAcademicYearRange(term) ?? 0 }
+  }
+
+  const yearRange = parseAcademicYearRange(name ?? '') ?? parseAcademicYearRange(code ?? '')
+  if (yearRange) {
+    return { label: `${new Date(yearRange).getFullYear() - 1}–${new Date(yearRange).getFullYear()}`, sortMs: yearRange }
+  }
+
+  return { label: 'No term', sortMs: Number.NEGATIVE_INFINITY }
+}
+
 /** A term ending further out than this isn't a term — it's a placeholder. */
 const FAR_FUTURE_MS = 400 * 24 * 60 * 60 * 1000
 

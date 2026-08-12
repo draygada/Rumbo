@@ -66,6 +66,114 @@
   gap: 14px;
 }
 
+.userMeta {
+  min-width: 0;
+}
+
+/* Same 44px circle as the initials fallback, so swapping between them doesn't
+   shift the row. object-fit keeps a non-square upload from stretching. */
+.avatarImage {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--color-bg-muted);
+}
+
+.avatarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-xs);
+}
+
+.linkButton,
+.linkButtonMuted {
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.linkButton {
+  color: var(--color-link);
+}
+
+.linkButton:hover:not(:disabled) {
+  color: var(--color-link-hover);
+}
+
+.linkButton:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.linkButtonMuted {
+  color: var(--color-text-muted);
+}
+
+.linkButtonMuted:hover {
+  color: var(--color-error);
+}
+
+/* Two columns on desktop, stacking under 520px so the inputs never get too
+   narrow to read what's in them. */
+.fieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+@media (max-width: 520px) {
+  .fieldGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.fieldLabel {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.detailList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.detailRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+  font-size: var(--text-label);
+}
+
+.detailKey {
+  color: var(--color-text-muted);
+}
+
+.detailValue {
+  color: var(--color-text);
+  font-weight: 500;
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .avatar {
   width: 44px;
   height: 44px;

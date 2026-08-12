@@ -135,6 +135,15 @@
   margin-right: auto;
 }
 
+/* The mark stands in for an illustration here — it's already the app's one
+   piece of visual identity, so an empty page reads as Rumbo rather than as a
+   blank field. Muted so it anchors the block without competing with the CTA. */
+.emptyMark {
+  display: block;
+  margin: 0 auto var(--space-lg);
+  opacity: 0.75;
+}
+
 .emptyTitle {
   font-size: 1rem;
   font-weight: 600;
@@ -147,6 +156,12 @@
   color: var(--color-text-secondary);
   line-height: 1.5;
   margin-bottom: var(--space-xl);
+}
+
+/* The gap below the copy is there to seat a button; states that have no action
+   (ingestion pending) shouldn't trail dead space. */
+.emptySubtitle:last-child {
+  margin-bottom: 0;
 }
 
 .emptyButton {

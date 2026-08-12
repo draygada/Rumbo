@@ -177,6 +177,17 @@
   justify-content: center;
 }
 
+/* Matches .avatar's box exactly so the rail doesn't shift when a photo is
+   added or removed. */
+.avatarImage {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-bg-muted);
+}
+
 .username {
   font-size: var(--text-label);
   font-weight: 500;

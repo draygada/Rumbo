@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useChatStore, useChatList } from './chatStore';
-import { useActiveSpace } from '../spaces/useSpaces';
 import { ExpandIcon, CollapseIcon } from '../components/icons/Icons';
 import styles from './ChatHistory.module.css';
 
@@ -56,17 +55,9 @@ function formatRelativeTime(timestamp: number): string {
 export default function ChatHistory({ open, onClose }: ChatHistoryProps) {
   // Drawer by default; expanded takes over the whole content area (Claude-style).
   const [expanded, setExpanded] = useState(false);
-  const allChats = useChatList();
-  const space = useActiveSpace();
-
-  // Each space keeps its own conversations — that separation is what makes a
-  // space feel like a different room rather than a filter. Chats saved before
-  // spaces existed carry either no courseId or the literal 'all' the old picker
-  // wrote; both mean "every class", which is Home.
-  const chats = useMemo(() => {
-    const scope = space.courseId ?? null;
-    return allChats.filter((c) => (c.courseId && c.courseId !== 'all' ? c.courseId : null) === scope);
-  }, [allChats, space.courseId]);
+  // Every conversation, unfiltered. Chats used to be partitioned by the active
+  // space; with spaces gone there is one flat history.
+  const chats = useChatList();
 
   const loadChat = useChatStore((s) => s.loadChat);
   const deleteChat = useChatStore((s) => s.deleteChat);
@@ -99,7 +90,7 @@ export default function ChatHistory({ open, onClose }: ChatHistoryProps) {
         aria-label="Your chats"
       >
         <header className={styles.header}>
-          <h2 className={styles.headerTitle}>{space.name} chats</h2>
+          <h2 className={styles.headerTitle}>Your chats</h2>
           <div className={styles.headerActions}>
             <button
               type="button"
@@ -128,7 +119,7 @@ export default function ChatHistory({ open, onClose }: ChatHistoryProps) {
         <div className={styles.body}>
           {chats.length === 0 ? (
             <div className={styles.emptyState}>
-              <p className={styles.emptyBody}>No chats in {space.name} yet</p>
+              <p className={styles.emptyBody}>No chats yet</p>
             </div>
           ) : (
             <ul className={styles.list}>

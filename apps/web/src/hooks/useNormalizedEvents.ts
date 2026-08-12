@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
+import { courseShortLabel } from '../lib/courseTerm'
 
 // Row shape mirrors public.normalized_events (see supabase/migrations/*graph_brain_schema.sql).
 export interface NormalizedEvent {
@@ -202,14 +203,19 @@ export function courseNameFromEvent(
   event: NormalizedEvent,
   courses?: Map<string, CourseInfo>,
 ): string {
+  // Normalised, not raw: this feeds the Tasks page group headings and every
+  // assignment card, which were showing "Sp26-CS-146J-01" while the Courses
+  // page showed "CS 146J" for the same class.
   if (courses && event.course_id) {
     const info = courses.get(event.course_id)
-    if (info) return info.course_code || info.name
+    if (info) return courseShortLabel(info.course_code, info.name)
   }
   const payload = event.raw_payload
   if (payload && typeof payload === 'object') {
     const p = payload as Record<string, unknown>
-    if (typeof p.course_code === 'string' && p.course_code) return p.course_code
+    if (typeof p.course_code === 'string' && p.course_code) {
+      return courseShortLabel(p.course_code, typeof p.course_name === 'string' ? p.course_name : '')
+    }
     if (typeof p.course_name === 'string' && p.course_name) return p.course_name
   }
   return event.course_id ?? 'Uncategorized'
@@ -219,7 +225,9 @@ export function courseNameFromEvent(
 // Returns a Map keyed by the course_id used on assignments.
 export function useCourses() {
   return useQuery({
-    queryKey: ['courses'],
+    // See the note in hooks/useCourses.ts — that hook is also called
+    // useCourses and returns an array, so these two must not share a key.
+    queryKey: ['courses', 'lookup'],
     queryFn: async () => {
       const [{ data: canvasRows }, { data: manualRows }] = await Promise.all([
         supabase

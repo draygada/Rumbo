@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
-import { useActiveSpace } from '../../spaces/useSpaces'
 import styles from './Brain.module.css'
 
 // Brain — a graph where every node is a concrete thing (a task, a file, a
@@ -685,7 +684,6 @@ function radiusFor(node: BrainNode): number {
 // -----------------------------------------------------------------------------
 
 export default function Brain() {
-  const space = useActiveSpace()
   const { data, isLoading, isError } = useQuery({
     queryKey: ['brain-v2'],
     queryFn: fetchBrain,
@@ -706,10 +704,6 @@ export default function Brain() {
   // Default zoom pulled back so the wider layout (courses seat at ~450-800px
   // radius; orphans at 1200px) fits a standard viewport on initial paint.
   const view = useRef({ x: 0, y: 0, zoom: 0.42})
-  // The draw loop is bound once and can't see props, so the focused course
-  // rides in on a ref.
-  const focusRef = useRef<string | null>(space.courseId)
-  focusRef.current = space.courseId
   const panState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const dragState = useRef<{ nodeId: string; offsetX: number; offsetY: number } | null>(null)
 
@@ -809,22 +803,6 @@ export default function Brain() {
     unfreezeSim()
   }, [filteredData, unfreezeSim])
 
-  // Entering a space flies the camera to that course's cluster. This is the
-  // "we already know what we're looking at" half of scoping: the node is
-  // identified from the space instead of being hunted for.
-  useEffect(() => {
-    if (!space.courseId) {
-      view.current = { x: 0, y: 0, zoom: 0.42 }
-      return
-    }
-    const members = positioned.current.filter(p => p.courseId === space.courseId)
-    if (members.length === 0) return
-    let cx = 0
-    let cy = 0
-    for (const p of members) { cx += p.x; cy += p.y }
-    view.current = { x: -cx / members.length, y: -cy / members.length, zoom: 0.85 }
-  }, [space.courseId, filteredData])
-
   useEffect(() => {
     const canvas = canvasRef.current
     const wrap = wrapRef.current
@@ -914,11 +892,10 @@ export default function Brain() {
     const border = getComputedStyle(document.documentElement).getPropertyValue('--color-border').trim() || '#dbd9e2'
     const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim() || '#2b2a2e'
 
-    // The active space focuses the graph rather than filtering it: out-of-scope
-    // nodes stay drawn but recede, so the class you're in reads as a region of
-    // one brain and the bridges out of it are still visible.
-    const focus = focusRef.current
-    const inFocus = (n: { courseId: string | null }) => !focus || n.courseId === focus
+    // Nothing is out of scope any more — course focusing came from spaces.
+    // Kept as a predicate so the dimming paths below stay intact for whatever
+    // drives focus next.
+    const inFocus = (_n: { courseId: string | null }) => true
 
     // Draw same-class edges first, then cross-class on top so bridges are
     // always visible above the intra-cluster web.
@@ -1094,9 +1071,8 @@ export default function Brain() {
         <div className={styles.headingBlock}>
           <h1 className={styles.title}>Brain</h1>
           <p className={styles.subtitle}>
-            {space.courseId
-              ? `Focused on ${space.name}. The rest of the graph stays visible so cross-class links still read.`
-              : 'Every node is a task, file, syllabus, or course. Edges form when nodes share concepts.'}
+            Every node is a task, file, syllabus, or course. Edges form when
+            nodes share concepts.
           </p>
         </div>
         <div className={styles.filters} role="group" aria-label="Filter nodes by type">

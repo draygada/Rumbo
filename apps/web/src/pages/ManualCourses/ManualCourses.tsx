@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listManualCourses } from '../../lib/manualCourses'
 import { supabase } from '../../lib/supabase'
-import { isCanvasCourseCurrent } from '../../lib/courseTerm'
-import { useActiveSpace } from '../../spaces/useSpaces'
+import { isCanvasCourseCurrent, termLabelFor, courseShortLabel } from '../../lib/courseTerm'
+import { PlusIcon, EditIcon } from '../../components/icons/Icons'
+import CourseEditDialog from '../../components/CourseEditDialog/CourseEditDialog'
+import { useCourseOverrides, resolveCourseColor, resolveCourseName } from '../../lib/courseOverrides'
 import styles from './ManualCourses.module.css'
 
 // A single unified course card, whether the underlying record came from
@@ -19,6 +21,10 @@ interface CourseCard {
   openTasks: number
   nextDue: { name: string; timestamp: string } | null
   isCurrent: boolean
+  /** Heading this course files under in the archive, e.g. "Winter 2026". */
+  termLabel: string
+  /** Orders term groups newest-first; -Infinity for courses with no term. */
+  termSortMs: number
 }
 
 // -----------------------------------------------------------------------------
@@ -92,6 +98,7 @@ async function fetchCourseCards(): Promise<CourseCard[]> {
 
     const courseId = row.external_id as string
     const stats = openByCourse.get(courseId)
+    const canvasTerm = termLabelFor(rawCode || null, term || null, rawName || null)
     cards.push({
       key: `canvas:${courseId}`,
       source: 'canvas',
@@ -103,6 +110,8 @@ async function fetchCourseCards(): Promise<CourseCard[]> {
       openTasks: stats?.count ?? 0,
       nextDue: stats?.next ?? null,
       isCurrent: isCanvasCourseCurrent(payload),
+      termLabel: canvasTerm.label,
+      termSortMs: canvasTerm.sortMs,
     })
   }
 
@@ -110,6 +119,7 @@ async function fetchCourseCards(): Promise<CourseCard[]> {
   for (const c of manualCourses) {
     const courseId = `manual_course_${c.id}`
     const stats = openByCourse.get(courseId)
+    const manualTerm = termLabelFor(c.course_code?.trim() || null, c.term?.trim() || null, c.name)
     cards.push({
       key: `manual:${c.id}`,
       source: 'manual',
@@ -121,6 +131,8 @@ async function fetchCourseCards(): Promise<CourseCard[]> {
       openTasks: stats?.count ?? 0,
       nextDue: stats?.next ?? null,
       isCurrent: true,  // Manual courses default to current unless archived_at is set — listManualCourses already filtered those out.
+      termLabel: manualTerm.label,
+      termSortMs: manualTerm.sortMs,
     })
   }
 
@@ -131,26 +143,72 @@ async function fetchCourseCards(): Promise<CourseCard[]> {
 // Card component
 // -----------------------------------------------------------------------------
 
-function CourseCardView({ card }: { card: CourseCard }) {
-  // Avoid "SUMO Tutoring · SUMO Tutoring" — some Canvas orgs set course_code
-  // and name to the same string.
-  const code = card.courseCode?.trim() ?? ''
+/**
+ * Most-pressing first: soonest deadline wins, then the bigger pile of open
+ * work, then alphabetical so the order is stable when nothing is outstanding.
+ */
+function sortByUrgency(a: CourseCard, b: CourseCard): number {
+  const at = a.nextDue ? new Date(a.nextDue.timestamp).getTime() : Infinity
+  const bt = b.nextDue ? new Date(b.nextDue.timestamp).getTime() : Infinity
+  if (at !== bt) return at - bt
+  if (a.openTasks !== b.openTasks) return b.openTasks - a.openTasks
+  return sortByCode(a, b)
+}
+
+function CourseCardView({
+  card,
+  wide = false,
+  archived = false,
+  onEdit,
+}: {
+  card: CourseCard
+  wide?: boolean
+  archived?: boolean
+  onEdit: (card: CourseCard, derivedName: string) => void
+}) {
+  const override = useCourseOverrides(s => s.byCourseId[card.courseId])
+  // "Sp26-CS-146J-01 · Full-Stack Web" is a database key, not a course name.
+  // The heading is the normalised code and the descriptive title drops to the
+  // subtitle rather than being thrown away. Courses with no parseable code
+  // (org shells like "SUMO Tutoring") fall back to their name, and the
+  // subtitle is suppressed so it can't repeat the heading.
+  const code = card.courseCode?.trim() || null
   const name = card.name.trim()
-  const heading = code && code.toLowerCase() !== name.toLowerCase()
-    ? `${code} · ${name}`
-    : name
-  const subtitle = [card.term, card.institutionOrInstructor].filter(Boolean).join(' · ')
+  const derivedName = courseShortLabel(code, name)
+  const heading = resolveCourseName(derivedName, override)
+  const subtitle = [
+    name.toLowerCase() === heading.toLowerCase() ? null : name,
+    card.institutionOrInstructor,
+  ].filter(Boolean).join(' · ')
 
   return (
-    <li className={styles.card}>
+    <li
+      className={[
+        styles.card,
+        wide ? styles.cardWide : '',
+        archived ? styles.cardArchived : '',
+      ].join(' ')}
+      style={{ '--course-hue': resolveCourseColor(card.courseId, override) } as React.CSSProperties}
+    >
       <div className={styles.cardHeader}>
         <div className={styles.cardMeta}>
           <span className={styles.cardHeading}>{heading}</span>
           {subtitle && <span className={styles.cardSubtitle}>{subtitle}</span>}
         </div>
-        <span className={card.source === 'canvas' ? styles.badgeCanvas : styles.badgeManual}>
-          {card.source}
-        </span>
+        <div className={styles.cardActions}>
+          <span className={card.source === 'canvas' ? styles.badgeCanvas : styles.badgeManual}>
+            {card.source}
+          </span>
+          <button
+            type="button"
+            className={styles.editButton}
+            onClick={() => onEdit(card, derivedName)}
+            aria-label={`Edit ${heading}`}
+            title="Edit name and colour"
+          >
+            <EditIcon size={15} />
+          </button>
+        </div>
       </div>
       <div className={styles.cardFooter}>
         <span className={styles.taskCount}>
@@ -175,11 +233,14 @@ function CourseCardView({ card }: { card: CourseCard }) {
 // -----------------------------------------------------------------------------
 
 export default function ManualCourses() {
-  const space = useActiveSpace()
   const [cards, setCards] = useState<CourseCard[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<string | null>(null)
   const [tab, setTab] = useState<'current' | 'archive'>('current')
+  const [editing, setEditing] = useState<{ courseId: string; derivedName: string } | null>(null)
+
+  const openEditor = (card: CourseCard, derivedName: string) =>
+    setEditing({ courseId: card.courseId, derivedName })
 
   useEffect(() => {
     fetchCourseCards()
@@ -188,13 +249,12 @@ export default function ManualCourses() {
       .finally(() => setLoading(false))
   }, [])
 
-  // In a class space this page narrows to that one course; Home shows all.
-  const scoped = useMemo(
-    () => (space.courseId ? cards.filter(c => c.courseId === space.courseId) : cards),
-    [cards, space.courseId],
-  )
+  // Every course, always — this used to narrow to the active space's class.
+  const scoped = cards
+  // Urgency order, so the one tile that gets double width is genuinely the
+  // one you should look at first.
   const currentCards = useMemo(
-    () => scoped.filter(c => c.isCurrent).sort(sortByCode),
+    () => scoped.filter(c => c.isCurrent).sort(sortByUrgency),
     [scoped],
   )
   const archiveCards = useMemo(
@@ -202,15 +262,33 @@ export default function ManualCourses() {
     [scoped],
   )
 
+  // Archive grouped into terms, newest first. Seventeen undifferentiated cards
+  // is a pile; the same cards under "Winter 2026" / "Fall 2025" are a history.
+  const archiveTerms = useMemo(() => {
+    const byTerm = new Map<string, { label: string; sortMs: number; cards: CourseCard[] }>()
+    for (const card of archiveCards) {
+      const group = byTerm.get(card.termLabel)
+      if (group) group.cards.push(card)
+      else byTerm.set(card.termLabel, { label: card.termLabel, sortMs: card.termSortMs, cards: [card] })
+    }
+    return [...byTerm.values()].sort((a, b) => b.sortMs - a.sortMs)
+  }, [archiveCards])
+
   const showList = tab === 'current' ? currentCards : archiveCards
   const showEmpty = !loading && scoped.length === 0
 
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>My courses</h1>
-        </div>
+        <h1 className={styles.title}>My courses</h1>
+        <Link
+          to="/settings?add=course"
+          className={styles.addButton}
+          aria-label="Add a course"
+          title="Add a course"
+        >
+          <PlusIcon size={18} />
+        </Link>
       </header>
 
       {archiveCards.length > 0 && (
@@ -258,21 +336,46 @@ export default function ManualCourses() {
             {tab === 'current' ? 'No current courses' : 'Nothing archived'}
           </h2>
         </div>
-      ) : (
-        <ul className={styles.list}>
-          {showList.map(card => <CourseCardView key={card.key} card={card} />)}
+      ) : tab === 'current' ? (
+        <ul className={styles.bento}>
+          {currentCards.map((card, i) => (
+            // Exactly one wide tile, and only when there's actually work in
+            // it. Making every busy course wide collapsed the grid back into
+            // full-width rows.
+            <CourseCardView
+              key={card.key}
+              card={card}
+              wide={i === 0 && card.openTasks > 0}
+              onEdit={openEditor}
+            />
+          ))}
         </ul>
-      )}
-
-      {tab === 'current' && !loading && scoped.length > 0 && (
-        <p className={styles.subtleAdd}>
-          <Link to="/settings?add=course" className={styles.emptyActionLink}>
-            + Add another course
-          </Link>
-        </p>
+      ) : (
+        <div className={styles.termGroups}>
+          {archiveTerms.map(term => (
+            <section key={term.label} className={styles.termGroup}>
+              <h2 className={styles.termHeading}>
+                {term.label}
+                <span className={styles.termCount}>{term.cards.length}</span>
+              </h2>
+              <ul className={styles.bento}>
+                {term.cards.map(card => (
+                  <CourseCardView key={card.key} card={card} archived onEdit={openEditor} />
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
 
       {message && <p className={styles.message} role="status" aria-live="polite">{message}</p>}
+
+      <CourseEditDialog
+        open={editing !== null}
+        courseId={editing?.courseId ?? ''}
+        derivedName={editing?.derivedName ?? ''}
+        onClose={() => setEditing(null)}
+      />
     </div>
   )
 }

@@ -1,11 +1,35 @@
 /* Rumbo design tokens — see DESIGN.md */
+
+/* ─── Tailwind v4 ─────────────────────────────────────────────────────────
+   Imported PIECEMEAL, deliberately: `@import "tailwindcss"` would also pull
+   in preflight, whose reset restyles headings, lists, borders and form
+   controls across the whole app. Every existing screen is styled by CSS
+   modules that assume the reset further down this file, so preflight would
+   silently reskin all of them. Utilities-only means Tailwind is inert until
+   a class is actually used.
+
+   When the CSS-module migration eventually happens, add:
+     @import 'tailwindcss/preflight.css' layer(base);
+   and re-check every screen in one pass rather than piecemeal. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* shadcn components ship `dark:` variants, which key off a `.dark` class by
+   default. Rumbo sets data-theme on <html> (see hooks/useTheme.ts), so point
+   the variant at that instead of introducing a second dark-mode signal. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 :root {
   /* === Spec canonical tokens (DESIGN.md §3) === */
-  /* surfaces — warm paper */
-  --base: #f6f5f2;
-  --base2: #ebeae5;
+  /* surfaces — near-white, with only a trace of warmth left. The warmth is a
+     red-minus-blue gap: paper was 4 levels at --base and 10 at --border, which
+     is what read as cream. Holding it to 1–3 keeps the palette from going
+     clinically blue while letting the page read as white. */
+  --base: #fafaf9;
+  --base2: #f0f0ee;
   --card: #ffffff;
-  --border: #e3e0d9;
+  --border: #e5e4e1;
 
   /* text — warm near-black */
   --text: #1b1815;
@@ -53,36 +77,29 @@
   --color-text-secondary: var(--text2);
   --color-text-muted: var(--muted-ink);
 
-  /* Space background wash. The tint is MIXED INTO the warm-paper surfaces at a
-     low percentage rather than replacing them, so every text/border token keeps
-     its contrast and only the mood changes. 'transparent' at any percentage
-     leaves the base exactly as it was, which is how "Paper" works. */
-  --space-tint: transparent;
-  --space-tint-amount: 12%;
   --muted-base: var(--base2);
 
-  --color-bg-page: color-mix(in srgb, var(--space-tint) var(--space-tint-amount), var(--base));
-  --color-bg-surface: color-mix(in srgb, var(--space-tint) calc(var(--space-tint-amount) / 2), var(--card));
-  --color-bg-sidebar: color-mix(in srgb, var(--space-tint) var(--space-tint-amount), var(--base2));
-  --color-bg-muted: color-mix(in srgb, var(--space-tint) var(--space-tint-amount), var(--muted-base));
-  --color-bg-selected: color-mix(in srgb, var(--space-bright) 9%, var(--card));
+  /* These were color-mix()es of a per-space tint over the base surfaces, with
+     the tint written to <html> as you switched space. With spaces gone nothing
+     writes it, so they collapse to the surfaces themselves. Worth noting the
+     mixes were not free: a 'transparent' tint at 12% is still a mix, so every
+     surface carried ~0.88 alpha and picked up whatever sat behind it. */
+  --color-bg-page: var(--base);
+  --color-bg-surface: var(--card);
+  --color-bg-sidebar: var(--base2);
+  --color-bg-muted: var(--muted-base);
+  --color-bg-selected: color-mix(in srgb, var(--terra) 9%, var(--card));
   --color-border: var(--border);
   --color-border-hover: var(--text3);
   --color-on-primary: var(--oninv);
 
-  /* Active space hue. spaces/useSpaces.ts#useApplySpaceAccent overwrites these
-     two on <html> when you switch space; everything below derives from them, so
-     the whole app (canvas included) recolours without touching a component.
-     Defaults are terra — the brand accent, and the Home space's colour. */
-  --space-ink: var(--terra-ink); /* AA-safe: small text and links */
-  --space-bright: var(--terra); /* saturated: fills, dots, focus ring */
-
+  /* Terra is the single brand accent (DESIGN.md §3). */
   --color-primary: var(--plum);
   --color-primary-hover: var(--plum2);
-  --color-accent: var(--space-ink);
-  --color-focus: var(--space-bright); /* bright is fine: 3:1 non-text ring */
-  --color-link: var(--space-ink);
-  --color-link-hover: color-mix(in srgb, var(--space-ink) 85%, var(--text));
+  --color-accent: var(--terra-ink); /* AA-safe: small text and links */
+  --color-focus: var(--terra); /* bright is fine: 3:1 non-text ring */
+  --color-link: var(--terra-ink);
+  --color-link-hover: color-mix(in srgb, var(--terra-ink) 85%, var(--text));
   --color-error: #b4524e;
   --color-error-bg: #faf4f4;
   --color-shadow: rgba(27, 24, 21, 0.1);
@@ -91,8 +108,8 @@
   --badge-shallow-bg: color-mix(in srgb, var(--terra) 10%, var(--card));
   --premium-badge-bg: color-mix(in srgb, var(--ochre) 15%, var(--card));
 
-  /* Typography — Space Grotesk everywhere; JetBrains Mono for graph labels */
-  --font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  /* Typography — Inter everywhere; JetBrains Mono for graph labels */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --text-headline: 1.5rem;
   --text-title: 1.375rem;
@@ -152,11 +169,8 @@
   --color-text-secondary: var(--text2);
   --color-text-muted: #8f8b99;
 
-  /* A tint reads stronger against a dark surface than a light one, so dark mode
-     takes a lighter hand. The mixes themselves are inherited from :root. */
-  --space-tint-amount: 9%;
   --muted-base: #26232b;
-  --color-bg-selected: color-mix(in srgb, var(--space-bright) 16%, var(--card));
+  --color-bg-selected: color-mix(in srgb, var(--terra) 16%, var(--card));
   --color-border: var(--border);
   --color-border-hover: #4a4753;
   /* Primary buttons invert in dark mode (light fill), so their label must be
@@ -168,10 +182,10 @@
   --color-primary-hover: #d7d3cc;
   /* The AA-safe `ink` variants are tuned for light surfaces and go muddy on a
      dark one, so dark mode takes the saturated hue instead. */
-  --color-accent: var(--space-bright);
-  --color-focus: var(--space-bright);
-  --color-link: var(--space-bright);
-  --color-link-hover: color-mix(in srgb, var(--space-bright) 78%, #ffffff);
+  --color-accent: var(--terra);
+  --color-focus: var(--terra);
+  --color-link: var(--terra);
+  --color-link-hover: color-mix(in srgb, var(--terra) 78%, #ffffff);
   --color-error: #e08a86;
   --color-error-bg: #2a1e1e;
   --color-shadow: rgba(0, 0, 0, 0.35);
@@ -254,4 +268,72 @@ a:focus:not(:focus-visible) {
   50% {
     opacity: 0.45;
   }
+}
+
+/* ─── shadcn token bridge ─────────────────────────────────────────────────
+   shadcn components are written against a fixed vocabulary (bg-background,
+   text-muted-foreground, border-input …). Mapping those onto Rumbo tokens
+   here means a dropped-in component inherits DESIGN.md instead of pasting in
+   shadcn's stock palette, which is how an app drifts to looking like every
+   other shadcn app.
+
+   Values point at Rumbo tokens directly. An earlier version routed them
+   through an intermediate block using shadcn's own names (--card, --border),
+   which collided with the identically-named Rumbo tokens above and formed
+   cycles: --card → --color-bg-surface → --card. Both resolved to nothing.
+   Dark mode masked it, because [data-theme='dark'] redeclares --card and
+   --border at higher specificity; light mode had no such block and lost its
+   card and border colours outright. Do not reintroduce a name from the Rumbo
+   palette here.
+
+   No dark-mode block is needed: every value points at an alias that
+   [data-theme='dark'] already redefines, so the bridge follows the theme.
+
+   NOT declared: --radius-sm/md/lg/xl and --font-mono. Rumbo already owns
+   those exact names, so `rounded-md` and `font-mono` resolve to its values on
+   their own — and declaring them here as var(--radius-md) would be a straight
+   self-reference.
+
+   Three Tailwind keys collide with Rumbo token names — --color-primary,
+   --color-border, --color-accent — and can't simply be dropped, because
+   Tailwind only emits a utility for a key present in @theme. They read from
+   the --sc-* aliases below instead. `inline` substitutes the expression
+   written here directly into each utility, so the expression itself has to be
+   both non-circular AND theme-aware: pointing at a primitive like --plum
+   would pin bg-primary to the light value and stop it inverting in dark. */
+:root {
+  --sc-primary: var(--plum);
+  /* shadcn's accent is the neutral hover/selected SURFACE, not a brand
+     colour. Kept separate from Rumbo's --color-accent (the terra brand ink)
+     so drop-in hover states don't come out orange. */
+  --sc-accent: var(--color-bg-muted);
+  --sc-border: var(--border);
+}
+
+:root[data-theme='dark'] {
+  /* Primary inverts to a light fill in dark mode, mirroring --color-primary. */
+  --sc-primary: var(--oninv);
+}
+@theme inline {
+  --color-background: var(--color-bg-page);
+  --color-foreground: var(--color-text);
+  --color-card: var(--color-bg-surface);
+  --color-card-foreground: var(--color-text);
+  --color-popover: var(--color-bg-surface);
+  --color-popover-foreground: var(--color-text);
+  --color-primary: var(--sc-primary);
+  --color-primary-foreground: var(--color-on-primary);
+  --color-accent: var(--sc-accent);
+  --color-border: var(--sc-border);
+  --color-secondary: var(--color-bg-muted);
+  --color-secondary-foreground: var(--color-text);
+  --color-muted: var(--color-bg-muted);
+  --color-muted-foreground: var(--color-text-muted);
+  --color-accent-foreground: var(--color-text);
+  --color-destructive: var(--color-error);
+  --color-destructive-foreground: var(--color-on-primary);
+  --color-input: var(--color-border);
+  --color-ring: var(--color-focus);
+
+  --font-sans: var(--font-family);
 }

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useActiveSpace } from '../../spaces/useSpaces'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   useUpcomingAssignments,
   useStillOpenAssignments,
@@ -18,6 +18,7 @@ import {
 } from '../../hooks/useNormalizedEvents'
 import AssignmentCard from '../../components/AssignmentCard/AssignmentCard'
 import TaskSkeleton from '../../components/TaskSkeleton/TaskSkeleton'
+import RumboMark from '../../components/RumboMark/RumboMark'
 import styles from './Dashboard.module.css'
 
 const TODAY_LABEL = new Date().toLocaleDateString('en-US', {
@@ -45,14 +46,7 @@ function formatCalendarTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
-/** Restrict a list of events to the active space's class. */
-function scopeEvents(events: NormalizedEvent[] | undefined, courseId: string | null): NormalizedEvent[] {
-  const all = events ?? []
-  return courseId ? all.filter(e => e.course_id === courseId) : all
-}
-
 export default function Dashboard() {
-  const space = useActiveSpace()
   const upcoming = useUpcomingAssignments()
   const coursesQuery = useCourses()
   const courses = coursesQuery.data
@@ -64,14 +58,11 @@ export default function Dashboard() {
 
   const [stillOpenExpanded, setStillOpenExpanded] = useState(false)
 
-  // Everything on this page is scoped to the space you're in. In a class space
-  // the calendar list scopes to empty (calendar events carry no course_id) and
-  // its section drops out, which is right — "Today" is a cross-class view.
-  const scope = space.courseId
-  const upcomingList = useMemo(() => scopeEvents(upcoming.data, scope), [upcoming.data, scope])
-  const stillOpenList = useMemo(() => scopeEvents(stillOpen.data, scope), [stillOpen.data, scope])
-  const recentList = useMemo(() => scopeEvents(recentlyAdded.data, scope), [recentlyAdded.data, scope])
-  const calendarList = useMemo(() => scopeEvents(todaysCalendar.data, scope), [todaysCalendar.data, scope])
+  // Every class, always — this page used to filter to the active space.
+  const upcomingList = upcoming.data ?? []
+  const stillOpenList = stillOpen.data ?? []
+  const recentList = recentlyAdded.data ?? []
+  const calendarList = todaysCalendar.data ?? []
 
   const isLoading =
     upcoming.isLoading || stillOpen.isLoading || recentlyAdded.isLoading || todaysCalendar.isLoading || sources.isLoading
@@ -127,16 +118,23 @@ export default function Dashboard() {
 
         {showNoSources && (
           <div className={styles.empty}>
+            <RumboMark size={56} variant="static" hubR={6} className={styles.emptyMark} />
             <p className={styles.emptyTitle}>Connect a source to get started</p>
             <p className={styles.emptySubtitle}>
-              Head to Settings to connect Canvas or Google. Rumbo will start pulling in
-              your courses — it can take a few minutes after connecting.
+              Connect Canvas or Google and Rumbo will start pulling in your courses —
+              it can take a few minutes.
             </p>
+            {/* The copy used to point at Settings in prose; the page has a
+                button style for exactly this, so make it the actual step. */}
+            <Link to="/settings" className={styles.emptyButton}>
+              Go to Settings
+            </Link>
           </div>
         )}
 
         {showIngestionPending && (
           <div className={styles.empty}>
+            <RumboMark size={56} variant="pulse" hubR={6} className={styles.emptyMark} />
             <p className={styles.emptyTitle}>We're pulling in your courses</p>
             <p className={styles.emptySubtitle}>
               This usually takes a few minutes — check back shortly.
@@ -146,10 +144,14 @@ export default function Dashboard() {
 
         {showCaughtUp && (
           <div className={styles.empty}>
+            <RumboMark size={56} variant="static" hubR={6} className={styles.emptyMark} />
             <p className={styles.emptyTitle}>You're all caught up</p>
             <p className={styles.emptySubtitle}>
               Nothing due in the next 14 days.
             </p>
+            <Link to="/home" className={styles.emptyButton}>
+              Ask Rumbo something
+            </Link>
           </div>
         )}
 

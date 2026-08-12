@@ -11,6 +11,8 @@ export interface User {
   last_name: string | null
   /** Generated column: `first_name last_name` (or null if both blank). */
   name: string | null
+  /** Public URL of the uploaded profile picture, or null for initials. */
+  avatar_url: string | null
   tier: UserTier
   onboarding_step: string
   onboarding_completed: boolean

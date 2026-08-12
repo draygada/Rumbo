@@ -90,13 +90,6 @@ export interface SavedChat {
   createdAt: number
   updatedAt: number
   conversationId: string | null
-  /**
-   * Which class this conversation is about: a course_id, or 'all' for every
-   * course. Scope is per-chat so "what's due this week?" means something
-   * different in an EDUC 475 chat than in an all-courses one. Older persisted
-   * chats have no value and are treated as 'all'.
-   */
-  courseId?: string | null
   messages: ChatMessage[]
 }
 
@@ -118,11 +111,6 @@ interface ChatStoreState {
   // that started it, even if the active chat has since changed).
   appendMessageToChat: (chatId: string, msg: ChatMessage) => void
   setConversationId: (id: string) => void
-  /** Set the active chat's course scope (course_id, or 'all'). */
-  setCourseId: (courseId: string | null) => void
-  /** Scope for the NEXT chat, before one exists. */
-  pendingCourseId: string | null
-  setPendingCourseId: (courseId: string | null) => void
   newChat: () => void
   loadChat: (id: string) => void
   deleteChat: (id: string) => void
@@ -133,6 +121,13 @@ interface ChatStoreState {
   // Scoped by chatId so a stale/aborted turn can't clear a newer stream.
   endStreaming: (chatId: string) => void
   stopStreaming: () => void
+  /**
+   * User-facing "Stop generating". Aborts the fetch but KEEPS whatever already
+   * streamed, committed as a normal assistant message — cutting a long answer
+   * short is not the same as throwing it away. Contrast stopStreaming(), which
+   * discards the partial because the chat it belongs to is going away.
+   */
+  stopGenerating: () => void
 }
 
 // Module-level abort handle for the current stream — kept outside the store so
@@ -164,7 +159,6 @@ export const useChatStore = create<ChatStoreState>()(
       chats: [],
       activeChatId: null,
       streaming: null,
-      pendingCourseId: null,
 
       appendMessage: (msg) =>
         set((state) => {
@@ -180,7 +174,6 @@ export const useChatStore = create<ChatStoreState>()(
               createdAt: now,
               updatedAt: now,
               conversationId: null,
-              courseId: state.pendingCourseId ?? null,
               messages: [],
             }
             chats = [...chats, fresh]
@@ -225,18 +218,6 @@ export const useChatStore = create<ChatStoreState>()(
             return { ...chat, title, updatedAt: Date.now(), messages: [...chat.messages, msg] }
           }),
         })),
-
-      setCourseId: (courseId) =>
-        set((state) => {
-          if (state.activeChatId === null) return { pendingCourseId: courseId }
-          return {
-            chats: state.chats.map((chat) =>
-              chat.id === state.activeChatId ? { ...chat, courseId } : chat,
-            ),
-          }
-        }),
-
-      setPendingCourseId: (courseId) => set({ pendingCourseId: courseId }),
 
       setConversationId: (id) =>
         set((state) => {
@@ -291,6 +272,36 @@ export const useChatStore = create<ChatStoreState>()(
         activeAbort = null
         set({ streaming: null })
       },
+
+      stopGenerating: () =>
+        set((state) => {
+          activeAbort?.abort()
+          activeAbort = null
+          const live = state.streaming
+          const text = live?.text.trim() ?? ''
+          // Nothing arrived before the stop — drop the turn rather than
+          // committing an empty bubble.
+          if (!live || !text) return { streaming: null }
+          const msg: ChatMessage = {
+            role: 'assistant',
+            id: newId(),
+            text,
+            mode: 'within_course',
+            confidence: 0.8,
+            // The sources frame arrives with the final payload, which a stopped
+            // turn never reaches.
+            sources: [],
+            turnId: null,
+          }
+          return {
+            streaming: null,
+            chats: state.chats.map((chat) =>
+              chat.id === live.chatId
+                ? { ...chat, updatedAt: Date.now(), messages: [...chat.messages, msg] }
+                : chat,
+            ),
+          }
+        }),
     }),
     {
       name: 'rumbo-tutor-chats',
@@ -299,7 +310,6 @@ export const useChatStore = create<ChatStoreState>()(
       partialize: (state) => ({
         chats: state.chats,
         activeChatId: state.activeChatId,
-        pendingCourseId: state.pendingCourseId,
       }),
     },
   ),

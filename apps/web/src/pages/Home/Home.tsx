@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
+import { resolveFirstName } from '../../lib/displayName'
 import { useTasks, getNextBlock, TaskWithBlocks } from '../../hooks/useTasks'
-import { useActiveSpace } from '../../spaces/useSpaces'
-import { useSpaceStore } from '../../spaces/spaceStore'
 import RumboMark from '../../components/RumboMark/RumboMark'
-import { SendIcon } from '../../components/icons/Icons'
+import { SendIcon, StopIcon } from '../../components/icons/Icons'
 import Markdown from '../../components/Markdown/Markdown'
 import ChatHistory from '../../chat/ChatHistory'
 import { streamTutor } from '../../chat/streamTutor'
@@ -18,18 +17,14 @@ import {
 } from '../../chat/chatStore'
 import styles from './Home.module.css'
 
+/** Tallest the composer grows before it scrolls. Mirrors .input's max-height. */
+const COMPOSER_MAX_HEIGHT = 160
+
 function greeting(date = new Date()): string {
   const h = date.getHours()
   if (h < 12) return 'Good morning'
   if (h < 18) return 'Good afternoon'
   return 'Good evening'
-}
-
-function firstName(name?: string | null, email?: string | null): string {
-  const fromName = name?.trim().split(/\s+/)[0]
-  if (fromName) return fromName
-  const fromEmail = email?.split('@')[0]
-  return fromEmail ? fromEmail.charAt(0).toUpperCase() + fromEmail.slice(1) : 'there'
 }
 
 interface Suggestion {
@@ -132,28 +127,7 @@ export default function Home() {
   const appendStreamDelta = useChatStore(s => s.appendStreamDelta)
   const endStreaming = useChatStore(s => s.endStreaming)
   const stopStreaming = useChatStore(s => s.stopStreaming)
-
-  // Scope now comes from the space you're standing in rather than a per-chat
-  // dropdown. An existing conversation keeps the courseId it was born with, so
-  // earlier answers in the thread stay consistent with later ones.
-  const space = useActiveSpace()
-  const activeChatId = useChatStore(s => s.activeChatId)
-  const rememberActiveChat = useSpaceStore(s => s.rememberActiveChat)
-  const setPendingCourseId = useChatStore(s => s.setPendingCourseId)
-
-  // Keep the space's memory current, so swiping away and back resumes this
-  // conversation rather than dropping into a blank one.
-  useEffect(() => {
-    rememberActiveChat()
-  }, [activeChatId, rememberActiveChat])
-
-  // Covers first load and a course going inactive under a persisted space id —
-  // enterSpace() handles every deliberate switch.
-  useEffect(() => {
-    if (useChatStore.getState().activeChatId === null) {
-      setPendingCourseId(space.courseId)
-    }
-  }, [space.courseId, activeChatId, setPendingCourseId])
+  const stopGenerating = useChatStore(s => s.stopGenerating)
 
   const [draft, setDraft] = useState('')
   const [chatsOpen, setChatsOpen] = useState(false)
@@ -166,7 +140,7 @@ export default function Home() {
 
   const { data: tasks } = useTasks()
   const active = messages.length > 0 || streamText !== null
-  const name = firstName(profile?.name, session?.user?.email ?? profile?.email)
+  const name = resolveFirstName(profile, session?.user?.user_metadata)
 
   const suggestions = useMemo(() => {
     const derived = deriveSuggestions(tasks ?? [])
@@ -176,6 +150,48 @@ export default function Home() {
   useEffect(() => {
     if (active) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, smoothed, active])
+
+  const fitComposer = useCallback(() => {
+    const el = inputRef.current
+    if (!el) return
+    // A textarea with no layout yet (backgrounded tab, mid-remount) reports its
+    // content as one very tall narrow column. Writing that into inline height
+    // latches it: max-height clamps what you SEE, so the box silently sits at
+    // its full height with a slab of dead space under the text, and only a
+    // later keystroke clears it. Wait for a real width instead — the observer
+    // below re-runs this the moment one exists.
+    if (el.clientWidth === 0) return
+    el.style.height = 'auto'
+    // Clamped here too, not just in CSS, so inline height can never disagree
+    // with what's rendered. Keep in step with .input's max-height.
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
+  }, [])
+
+  // Grow the composer with the draft. `active` is a dep because the hero and
+  // the dock mount separate textareas — the new one starts at its default
+  // height and has to be measured again. Collapsing to `auto` first is what
+  // lets the box shrink back when text is deleted.
+  useLayoutEffect(() => {
+    fitComposer()
+  }, [draft, active, fitComposer])
+
+  // Width decides where the text wraps, so a height is only right for the width
+  // it was measured at. Re-fit whenever the box changes width: the first real
+  // layout after a hidden/backgrounded mount, a window resize, the rail
+  // collapsing. Gated on width actually changing — our own height writes would
+  // otherwise re-enter this and trip ResizeObserver's loop warning.
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    let lastWidth = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === lastWidth) return
+      lastWidth = el.clientWidth
+      fitComposer()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [active, fitComposer])
 
   const send = useCallback(async (text: string) => {
     const prompt = text.trim()
@@ -205,7 +221,7 @@ export default function Home() {
         userId,
         message: prompt,
         conversationId,
-        courseId: chat?.courseId ?? 'all',
+        courseId: 'all',
         signal: controller.signal,
         onMeta: m => {
           meta = m as typeof meta
@@ -289,12 +305,12 @@ export default function Home() {
     </div>
   )
 
-  // Read-only: the space is the scope, so it's stated rather than chosen here.
-  // Switching is a swipe (or a pip click) in the rail.
+  // The tutor searches every class. This used to state the active space's
+  // scope; with spaces gone there is only ever one scope.
   const scopeNote = (
     <p className={styles.scopeNote}>
-      <span className={styles.scopeDot} style={{ background: space.bright }} aria-hidden="true" />
-      {space.courseId ? `Scoped to ${space.name}` : 'Searching every class'}
+      <span className={styles.scopeDot} aria-hidden="true" />
+      Searching every class
     </p>
   )
 
@@ -310,14 +326,29 @@ export default function Home() {
         placeholder="Ask Rumbo anything about your courses…"
         aria-label="Message Rumbo"
       />
-      <button
-        type="submit"
-        className={styles.send}
-        disabled={!draft.trim() || busy}
-        aria-label="Send message"
-      >
-        <SendIcon size={18} />
-      </button>
+      {/* One slot, two jobs: while an answer is streaming the only useful
+          action is to halt it, so send becomes stop rather than sitting
+          greyed out. */}
+      {busy ? (
+        <button
+          type="button"
+          className={`${styles.send} ${styles.stop}`}
+          onClick={stopGenerating}
+          aria-label="Stop generating"
+          title="Stop generating"
+        >
+          <StopIcon size={18} />
+        </button>
+      ) : (
+        <button
+          type="submit"
+          className={styles.send}
+          disabled={!draft.trim()}
+          aria-label="Send message"
+        >
+          <SendIcon size={18} />
+        </button>
+      )}
     </form>
   )
 

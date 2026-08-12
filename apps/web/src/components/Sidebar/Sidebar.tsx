@@ -2,13 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { getInitials } from '../../lib/initials'
+import { resolveDisplayName } from '../../lib/displayName'
 import RumboMark from '../RumboMark/RumboMark'
-import SpaceSwitcher from '../../spaces/SpaceSwitcher'
-import { useSpaceSwipe } from '../../spaces/useSpaceSwipe'
-import { useSpaceStore } from '../../spaces/spaceStore'
-import {
-  useSpaces, useActiveSpace, useActiveSpaceIndex, useApplySpaceTheme,
-} from '../../spaces/useSpaces'
 import {
   ChatIcon, TasksIcon, CoursesIcon, SettingsIcon, UserIcon,
 } from '../icons/Icons'
@@ -28,28 +23,16 @@ const ACCOUNT_MENU = [
 ]
 
 export default function Sidebar() {
-  const { profile } = useAuth()
-  // The rail is the one component mounted on every signed-in screen, so it's
-  // where the space's hue gets applied to <html>.
-  const activeSpace = useActiveSpace()
-  useApplySpaceTheme(activeSpace)
-
-  // The two-finger swipe listens on the window. Scoped to the rail it was a
-  // 64px-wide target you had to aim the pointer at before the gesture did
-  // anything, which is not what "swipe to another space" should mean.
-  const spaces = useSpaces()
-  const spaceIndex = useActiveSpaceIndex()
-  const enterSpace = useSpaceStore(s => s.enterSpace)
-  useSpaceSwipe({
-    count: spaces.length,
-    index: spaceIndex,
-    onChange: next => {
-      const target = spaces[next]
-      if (target) enterSpace(target.id, target.courseId)
-    },
-  })
-  const initials = getInitials(profile?.name, profile?.email)
-  const name = profile?.name?.trim() || profile?.email?.split('@')[0] || ''
+  const { profile, session } = useAuth()
+  // Same resolution as the greeting and the account page — see lib/displayName.
+  const displayName = resolveDisplayName(profile, session?.user?.user_metadata)
+  const initials = getInitials(displayName, profile?.email)
+  const avatarUrl =
+    profile?.avatar_url ??
+    (typeof session?.user?.user_metadata?.avatar_url === 'string'
+      ? session.user.user_metadata.avatar_url
+      : null)
+  const name = displayName || profile?.email?.split('@')[0] || ''
   const email = profile?.email ?? ''
 
   const [menuOpen, setMenuOpen] = useState(false)
@@ -83,8 +66,6 @@ export default function Sidebar() {
         <span className={styles.brandWord}>Rumbo</span>
       </NavLink>
 
-      <SpaceSwitcher />
-
       <nav className={styles.nav}>
         <ul className={styles.group}>
           {PRIMARY.map(({ to, label, icon: Icon }) => (
@@ -113,7 +94,9 @@ export default function Sidebar() {
           aria-expanded={menuOpen}
           aria-label="Account menu"
         >
-          <span className={styles.avatar}>{initials}</span>
+          {avatarUrl
+            ? <img className={styles.avatarImage} src={avatarUrl} alt="" />
+            : <span className={styles.avatar}>{initials}</span>}
           <span className={styles.username}>{name}</span>
         </button>
 

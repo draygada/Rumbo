@@ -161,3 +161,31 @@ export function SendIcon(p: IconProps) {
     </Svg>
   )
 }
+
+/** Edit — a pencil, drawn on the same 24 grid as the rest of the set. */
+export function EditIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+      <path d="M14.5 6.5 17.5 9.5" />
+    </Svg>
+  )
+}
+
+export function PlusIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 5v14M5 12h14" />
+    </Svg>
+  )
+}
+
+/** Stop generating — a filled square, the one solid glyph in the set so it
+ *  reads as "halt" at a glance next to the outlined send arrow. */
+export function StopIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
+    </Svg>
+  )
+}

@@ -1,6 +1,9 @@
 .page {
   padding: var(--page-padding-desktop);
-  max-width: 760px;
+  /* Wider than the app's 760px reading column: this is a grid view, and at
+     760px only two bento columns fit, which turns every wide tile back into
+     the full-width row this redesign is trying to get away from. */
+  max-width: 1100px;
   margin-inline: auto;
   width: 100%;
 }
@@ -13,7 +16,38 @@
 }
 
 .header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
   margin-bottom: var(--space-lg);
+}
+
+/* Add sits with the page title rather than trailing the list, so it stays put
+   as courses are added and is reachable from the archive tab too. Icon-only,
+   so it needs the aria-label and title it carries in the markup. */
+.addButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.addButton:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-muted);
 }
 
 .title {
@@ -58,18 +92,33 @@
   border-bottom-color: var(--color-primary);
 }
 
+/* Pill counts riding beside the label — DESIGN.md §5 allows 999px for pills
+   specifically, and a count is the canonical case. Fixed min-width so the tab
+   doesn't reflow when a count goes from 9 to 10. */
 .tabCount {
-  padding: 1px 6px;
+  min-width: 20px;
+  padding: 1px 7px;
   background: var(--color-bg-muted);
   color: var(--color-text-muted);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   font-size: var(--text-badge);
   font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
+/* Terra is the one UI accent, so the active count carries it rather than the
+   old teal — teal is reserved for course identity. */
 .tabActive .tabCount {
-  background: var(--color-bg-selected);
-  color: var(--rumbo-teal);
+  background: color-mix(in srgb, var(--terra) 14%, var(--color-bg-surface));
+  color: var(--terra-ink);
+}
+
+.tab:hover:not(.tabActive) {
+  color: var(--color-text-secondary);
 }
 
 .list {
@@ -81,21 +130,162 @@
   list-style: none;
 }
 
+/* Bento: tiles flow into whatever columns fit, and the ones with work
+   outstanding span two. `auto-fill` rather than `auto-fit` so a single course
+   stays card-width instead of stretching across the whole page — the old
+   full-width rows were the main reason this page read as empty. */
+.bento {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--space-md);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
   padding: var(--space-lg);
+  /* Extra top padding clears the hue bar below. */
+  padding-top: calc(var(--space-lg) + 3px);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+  overflow: hidden;
   transition:
     border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
+}
+
+/* The course's identity hue (DESIGN.md §3: sage/ochre/dblue/teal mean "a
+   class"). A 3px edge is enough to tell tiles apart at a glance without
+   tinting a surface, which would break the two-background rule. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--course-hue, var(--color-border));
 }
 
 .card:hover {
   border-color: var(--color-border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Only span once there are at least two columns to span — below that the
+   tile would overflow its own grid. */
+@media (min-width: 720px) {
+  .cardWide {
+    grid-column: span 2;
+  }
+}
+
+/* Archived: the colour drains out. The hue bar goes grey and the whole tile
+   sits back, so a past term reads as finished at a glance rather than needing
+   the heading to tell you. Deliberately not opacity on the tile — that would
+   fade the border and text below their contrast floors; this desaturates the
+   identity colour and steps the text down to the muted token, both of which
+   stay legible. */
+.cardArchived::before {
+  background: var(--color-border-hover);
+}
+
+.cardArchived .cardHeading {
+  color: var(--color-text-secondary);
+}
+
+.cardArchived .badgeCanvas,
+.cardArchived .badgeManual {
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+/* Hidden until the tile is hovered or the button itself is focused, so a wall
+   of pencils doesn't compete with the course names. Focus-visible keeps it
+   reachable by keyboard, where there is no hover to trigger it. */
+.editButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.card:hover .editButton,
+.editButton:focus-visible {
+  opacity: 1;
+}
+
+.editButton:hover {
+  color: var(--color-text);
+  background: var(--color-bg-muted);
+}
+
+/* Touch has no hover, so the affordance would never appear. */
+@media (hover: none) {
+  .editButton {
+    opacity: 1;
+  }
+}
+
+/* ─── Archive, grouped by term ───────────────────────────────────────── */
+.termGroups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xl);
+}
+
+.termGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.termHeading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  /* Eyebrow treatment from DESIGN.md §4 — the UI face at 700, tracked and
+     uppercased, rather than an actual mono face. */
+  font-size: var(--text-badge);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.termCount {
+  padding: 1px 7px;
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-badge);
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .cardHeader {
@@ -119,6 +309,13 @@
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Two lines max. In a grid a three-line title pushes its own footer down and
+     breaks the alignment across the row; in the old single-column list the
+     same title cost nothing. Long Canvas org names hit this constantly. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .cardSubtitle {
