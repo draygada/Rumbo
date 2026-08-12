@@ -39,6 +39,46 @@ export function parseAcademicYearRange(text: string): number | null {
   return new Date(endYear, 7, 31).getTime()
 }
 
+/**
+ * When this course's term ends, in ms, or null if Canvas gave us nothing
+ * usable. Same precedence as isCanvasCourseCurrent — code prefix, then the
+ * Canvas term object, then a year range in the name.
+ */
+export function courseTermEnd(payload: Record<string, unknown>): number | null {
+  const code = typeof payload.course_code === 'string' ? payload.course_code : ''
+  const name = typeof payload.name === 'string' ? payload.name : ''
+
+  const prefix = parseTermPrefix(code)
+  if (prefix) return prefix.endMs
+
+  const term = (payload.term as Record<string, unknown> | undefined) ?? {}
+  if (typeof term.end_at === 'string') {
+    const end = new Date(term.end_at).getTime()
+    if (!Number.isNaN(end)) return end
+  }
+
+  return parseAcademicYearRange(name) ?? parseAcademicYearRange(code)
+}
+
+/** A term ending further out than this isn't a term — it's a placeholder. */
+const FAR_FUTURE_MS = 400 * 24 * 60 * 60 * 1000
+
+/**
+ * Administrative shells — tutoring orgs, department pages, standing committees
+ * — rather than classes the student takes.
+ *
+ * Two tells, both present in real data: no resolvable term at all, or a term
+ * whose end_at is parked far in the future (Canvas hands these out as
+ * 2099-12-31). The second matters because such a course looks permanently "in
+ * session", so without this check the only spaces that ever appeared were the
+ * shells, while every real class was filtered out.
+ */
+export function isAdminShell(payload: Record<string, unknown>): boolean {
+  const end = courseTermEnd(payload)
+  if (end === null) return true
+  return end > Date.now() + FAR_FUTURE_MS
+}
+
 // The term is the single most reliable signal: if the term has ended, the
 // course is archived. Everything else is a fallback for shells with no term.
 export function isCanvasCourseCurrent(payload: Record<string, unknown>): boolean {

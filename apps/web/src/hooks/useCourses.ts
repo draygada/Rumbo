@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import { isCanvasCourseCurrent } from '../lib/courseTerm'
+import { isCanvasCourseCurrent, courseTermEnd, isAdminShell } from '../lib/courseTerm'
 
 /*
  * The student's courses, derived from ingested course records.
@@ -20,10 +20,16 @@ export interface Course {
   /** Short label for chips/menus: the code if present, else a trimmed name. */
   label: string
   /**
-   * Is the course still running this term? Only current courses get a space
-   * (see spaces/useSpaces.ts) — archived ones stay reachable via "New space".
+   * Is the course still running this term? Drives the Current/Archive split on
+   * the Courses page. Note this is false for EVERY course between terms, which
+   * is why it isn't on its own the rule for which courses get a space — see
+   * spaces/useSpaces.ts.
    */
   isCurrent: boolean
+  /** When this course's term ends, for picking the most recent one. */
+  termEndMs: number | null
+  /** A department/tutoring shell rather than a class the student takes. */
+  isShell: boolean
 }
 
 interface CourseRow {
@@ -64,11 +70,15 @@ export function useCourses() {
           : null
         // Manual courses have no term metadata and are only listed while
         // un-archived, so they always count as current.
-        const isCurrent = row.source_type === 'manual_course'
-          ? true
-          : isCanvasCourseCurrent(rp)
+        const manual = row.source_type === 'manual_course'
         byId.set(row.course_id, {
-          id: row.course_id, code, name, label: shortLabel(code, name), isCurrent,
+          id: row.course_id,
+          code,
+          name,
+          label: shortLabel(code, name),
+          isCurrent: manual ? true : isCanvasCourseCurrent(rp),
+          termEndMs: manual ? null : courseTermEnd(rp),
+          isShell: manual ? false : isAdminShell(rp),
         })
       }
       return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label))

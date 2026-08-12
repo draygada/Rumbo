@@ -9,8 +9,38 @@
 // -----------------------------------------------------------------------------
 
 import { useEffect, useMemo } from 'react'
-import { useCourses } from '../hooks/useCourses'
+import { useCourses, type Course } from '../hooks/useCourses'
 import { useSpaceStore, HOME_SPACE_ID } from './spaceStore'
+
+/** Courses whose terms end within this of each other count as the same term. */
+const SAME_TERM_MS = 21 * 24 * 60 * 60 * 1000
+
+/**
+ * Which courses get an automatic space.
+ *
+ * "Currently active in Canvas" is the intent, but taken literally it breaks for
+ * a chunk of the year: between terms NOTHING is in session, so the rule would
+ * hide every real class. In the current data — mid-August — Winter 26 ended in
+ * March and Spring 26 in June, so a literal reading produced zero real spaces
+ * and surfaced only two administrative shells with placeholder 2099 end dates.
+ *
+ * So: courses in session if any are, otherwise the most recent term that
+ * actually ran. Anything older stays one click away under "New space".
+ */
+export function selectSpaceCourses(courses: Course[]): Course[] {
+  const real = courses.filter(c => !c.isShell)
+
+  const inSession = real.filter(c => c.isCurrent)
+  if (inSession.length > 0) return inSession
+
+  const dated = real.filter(c => c.termEndMs !== null)
+  if (dated.length === 0) return []
+
+  // Between terms — fall back to the newest term we have on record, taking
+  // every course that shares it rather than just the single latest course.
+  const latest = Math.max(...dated.map(c => c.termEndMs as number))
+  return dated.filter(c => latest - (c.termEndMs as number) < SAME_TERM_MS)
+}
 
 export type SpaceKind = 'home' | 'course' | 'custom'
 
@@ -97,8 +127,7 @@ export function useSpaces(): Space[] {
     let hue = 0
     const nextHue = () => PALETTE[hue++ % PALETTE.length]
 
-    for (const course of courses ?? []) {
-      if (!course.isCurrent) continue
+    for (const course of selectSpaceCourses(courses ?? [])) {
       const color = nextHue()
       list.push({
         id: course.id,
