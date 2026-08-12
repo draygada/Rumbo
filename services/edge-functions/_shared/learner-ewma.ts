@@ -88,6 +88,27 @@ export function ewmaUpdate(
   return { value: clamp01(value), at }
 }
 
+/**
+ * ewmaUpdate for a score with no history, where the first signal IS the prior.
+ *
+ * Folding a first signal into a zero prior does not work, and the failure is
+ * silent: elapsed time from the signal's own timestamp is zero, so the decay
+ * factor is 1, so the update keeps 100% of the zero prior and takes 0% of the
+ * signal. A concept's first observation would score 0 and stay there until a
+ * second signal arrived days later. Seeding from the first signal and folding
+ * the rest is what "no history" actually means.
+ *
+ * A score with no signals at all legitimately stays at 0 — a concept the
+ * student only ever struggled with has no evidence of mastery, and 0 is the
+ * honest value, not a missing one.
+ */
+function ewmaSeed(signals: TimedSignal[], fallbackAt: number, halfLifeDays: number): EwmaResult {
+  if (signals.length === 0) return { value: 0, at: fallbackAt }
+  const sorted = [...signals].sort((a, b) => a.at - b.at)
+  const [first, ...rest] = sorted
+  return ewmaUpdate(clamp01(first.value), first.at, rest, halfLifeDays)
+}
+
 export function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0
   return Math.min(1, Math.max(0, n))
@@ -167,9 +188,6 @@ export function foldConceptMastery(
   const earliest = timestamps.length > 0 ? Math.min(...timestamps) : now
   const latest = timestamps.length > 0 ? Math.max(...timestamps) : now
 
-  // A brand-new concept starts at zero as of its first signal, so that first
-  // signal lands at full weight rather than being decayed against an
-  // arbitrary epoch.
   const base: MasteryState = prior ?? {
     struggle_score: 0,
     mastery_score: 0,
@@ -180,18 +198,14 @@ export function foldConceptMastery(
     zpd_edge: null,
   }
 
-  const struggle = ewmaUpdate(
-    base.struggle_score,
-    base.last_updated_at,
-    batch.struggle,
-    UPDATE_HALF_LIFE_DAYS,
-  )
-  const mastery = ewmaUpdate(
-    base.mastery_score,
-    base.last_updated_at,
-    batch.understanding,
-    UPDATE_HALF_LIFE_DAYS,
-  )
+  // A concept with no history seeds from its first signal; one with history
+  // folds against it. See ewmaSeed for why these cannot be the same call.
+  const struggle = prior
+    ? ewmaUpdate(base.struggle_score, base.last_updated_at, batch.struggle, UPDATE_HALF_LIFE_DAYS)
+    : ewmaSeed(batch.struggle, earliest, UPDATE_HALF_LIFE_DAYS)
+  const mastery = prior
+    ? ewmaUpdate(base.mastery_score, base.last_updated_at, batch.understanding, UPDATE_HALF_LIFE_DAYS)
+    : ewmaSeed(batch.understanding, earliest, UPDATE_HALF_LIFE_DAYS)
 
   // Each score decays independently against ITS OWN last update, not the
   // batch's. A turn where the student only expressed confusion carries no
