@@ -16,8 +16,10 @@
  * implementation and it cannot be missed again.
  *
  * TWO RULES, both load-bearing:
- *   1. Never awaited by a request. Call with `void` after the answer is sent.
- *      A learner signal is worth strictly less than an answer.
+ *   1. Never awaited by a request. Hand it to runInBackground() after the
+ *      answer is sent — a learner signal is worth strictly less than an
+ *      answer. NOT a bare `void`: that is what kept this table empty through
+ *      slice 1. See _shared/edge-background.ts.
  *   2. Never throws. Every failure is swallowed and logged.
  */
 

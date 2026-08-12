@@ -254,11 +254,19 @@ async function conceptsCoveredBy(
   userId: string,
   sources: RetrievedSource[],
 ): Promise<Array<{ id: string; name: string }>> {
-  const sourceIds = sources.map(s => s.source_id).filter(Boolean)
+  // parent_id first, and it is load-bearing rather than defensive. COVERS is
+  // written onto Lecture / Assignment / File / Syllabus / Course — never onto
+  // a Chunk. Lane A returns chunks, and Lane A is precisely the lane that
+  // carries the turn when concept resolution came back empty. Keying on
+  // source_id alone would therefore return [] in exactly the case this
+  // fallback exists to cover, while looking correct on Lane B-heavy turns.
+  const sourceIds = [...new Set(sources.map(s => s.parent_id || s.source_id).filter(Boolean))]
   if (sourceIds.length === 0) return []
   try {
     const rows = await g.run(
-      `MATCH (s)-[cov:COVERS]->(c:Concept { user_id: $userId })
+      // s is user-scoped explicitly: every other traversal in this file pins
+      // user_id, and an unpinned MATCH on a shared id would cross students.
+      `MATCH (s { user_id: $userId })-[cov:COVERS]->(c:Concept { user_id: $userId })
        WHERE s.id IN $sourceIds
        WITH c, sum(coalesce(cov.weight, 1.0)) AS w
        RETURN c.id AS id, c.name AS name
