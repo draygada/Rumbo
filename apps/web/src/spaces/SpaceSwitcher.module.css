@@ -81,25 +81,50 @@
   /* Centred under the strip — the pips read as a position indicator for the
      whole rail, not a left-aligned list item. */
   justify-content: center;
-  gap: 5px;
-  height: 16px;
+  gap: 6px;
+  /* Tall enough that the gooey filter's blur isn't clipped by the rail. */
+  height: 22px;
+}
+
+/* The filtered group. Dots and the travelling drop are both inside it, so the
+   blur+contrast pass merges them where they overlap. */
+.goo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  filter: url(#rumbo-goo);
 }
 
 .pip {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   padding: 0;
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-border-hover);
   cursor: pointer;
-  transition:
-    width var(--duration-fast) var(--ease-out),
-    background var(--duration-fast) var(--ease-out);
 }
 
-.pipActive {
-  width: 14px;
+/* Position, width and colour are written per-frame by spaceMotion.paintTracks —
+   no CSS transition, or it would fight the spring driving it. */
+.blob {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--space-bright);
+  pointer-events: none;
+  will-change: transform, width;
+}
+
+/* Filter definitions only — must be in the DOM, must never take up space. */
+.filterHost {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
 .addPip {

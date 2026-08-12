@@ -33,8 +33,12 @@
 import { useEffect, useRef } from 'react'
 import { paintTracks } from './spaceMotion'
 
-/** Finger travel, in px, that equals one full space. */
-const SLIDE_TRAVEL_PX = 150
+/**
+ * Finger travel, in px, that equals one full space. Deliberately long: at 150
+ * a sustained swipe tore through every space almost instantly, and the drop
+ * between the dots had no time to read. This is the main friction dial.
+ */
+const SLIDE_TRAVEL_PX = 280
 /** Spring: ratio ~0.9, so it arrives fast with barely any overshoot. */
 const STIFFNESS = 280
 const DAMPING = 30
@@ -48,10 +52,10 @@ const GESTURE_END_MS = 90
 const PROJECTION_S = 0.1
 /**
  * Minimum gap between two commits inside one continuous swipe. Keeps a hard
- * flick's momentum tail from running through several spaces, while still
- * allowing ~8/second when the fingers really are still moving.
+ * flick's momentum tail from running through several spaces, and paces a
+ * sustained swipe so each crossing is actually legible.
  */
-const MIN_COMMIT_GAP_MS = 110
+const MIN_COMMIT_GAP_MS = 260
 /** Frame clamp, so a backgrounded tab can't integrate one enormous step. */
 const MAX_DT = 1 / 30
 

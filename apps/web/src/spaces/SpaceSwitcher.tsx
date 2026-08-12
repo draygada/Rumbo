@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSpaces, useActiveSpaceIndex } from './useSpaces'
 import { useSpaceStore } from './spaceStore'
 import NewSpaceDialog from './NewSpaceDialog'
 import SpaceMenu from './SpaceMenu'
-import { useMotionTrack } from './spaceMotion'
+import { useMotionTrack, setSpaceColors } from './spaceMotion'
 import styles from './SpaceSwitcher.module.css'
 
 /*
@@ -23,8 +23,15 @@ export default function SpaceSwitcher() {
   const index = useActiveSpaceIndex()
   const enterSpace = useSpaceStore(s => s.enterSpace)
   const stripRef = useMotionTrack('strip')
+  const pipsRef = useMotionTrack('pips')
+  const blobRef = useMotionTrack('blob')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // The travelling drop takes on the colour of wherever it's heading.
+  useEffect(() => {
+    setSpaceColors(spaces.map(s => s.bright))
+  }, [spaces])
 
   const go = (next: number) => {
     const space = spaces[next]
@@ -68,17 +75,22 @@ export default function SpaceSwitcher() {
         </div>
 
         <div className={styles.pips}>
-          {spaces.map((space, i) => (
-            <button
-              key={space.id}
-              type="button"
-              className={[styles.pip, i === index ? styles.pipActive : ''].join(' ')}
-              style={i === index ? { background: space.bright } : undefined}
-              onClick={() => go(i)}
-              aria-label={`Switch to ${space.name}`}
-              aria-current={i === index ? 'true' : undefined}
-            />
-          ))}
+          {/* Everything inside .goo is filtered together, so the drop below
+              fuses with each dot as it passes — the liquid part of the effect. */}
+          <div className={styles.goo} ref={pipsRef}>
+            {spaces.map((space, i) => (
+              <button
+                key={space.id}
+                type="button"
+                data-pip
+                className={styles.pip}
+                onClick={() => go(i)}
+                aria-label={`Switch to ${space.name}`}
+                aria-current={i === index ? 'true' : undefined}
+              />
+            ))}
+            <span className={styles.blob} ref={blobRef} aria-hidden="true" />
+          </div>
           <button
             type="button"
             className={styles.addPip}
@@ -90,6 +102,23 @@ export default function SpaceSwitcher() {
           </button>
         </div>
       </div>
+
+      {/* Gooey filter: blur everything together, then crush the alpha ramp back
+          to hard edges. Shapes that overlap after the blur come out as one
+          merged blob, which is what makes the drop appear to pull out of a dot
+          and pour into the next. */}
+      <svg className={styles.filterHost} aria-hidden="true" focusable="false">
+        <defs>
+          <filter id="rumbo-goo">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.6" result="blur" />
+            <feColorMatrix
+              in="blur"
+              type="matrix"
+              values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9"
+            />
+          </filter>
+        </defs>
+      </svg>
 
       {menuOpen && active && <SpaceMenu space={active} onClose={() => setMenuOpen(false)} />}
       {dialogOpen && <NewSpaceDialog onClose={() => setDialogOpen(false)} />}
