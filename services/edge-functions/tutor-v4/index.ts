@@ -20,6 +20,7 @@ import { routeQuery } from '../_shared/router-v4.ts'
 import { runShortcut } from '../_shared/metadata-shortcut.ts'
 import { retrieveV4 } from '../_shared/retrieval-v4.ts'
 import { generateAnswer } from '../_shared/answer-v4.ts'
+import { captureLearnerSignals, type SignalConcept } from '../_shared/learner-signals.ts'
 
 interface TutorRequest {
   user_id: string
@@ -86,6 +87,9 @@ async function handle(req: Request): Promise<Response> {
 
     // Stage 2b: metadata shortcut path
     let response: TutorResponse
+    // Concepts the turn resolved to, for Stage 9b. Stays empty on the lookup
+    // and small-talk paths, which never retrieve.
+    let resolvedConcepts: SignalConcept[] = []
 
     if (route.learning_mode === 'lookup' && route.template) {
       const t2b = Date.now()
@@ -112,6 +116,7 @@ async function handle(req: Request): Promise<Response> {
           courseScope: body.course_id ?? undefined,
         })
         timing.stage3to7_retrieval = Date.now() - t3
+        resolvedConcepts = retrieval.resolvedConcepts
         const t8 = Date.now()
         const answer = await generateAnswer({
           query: rewritten.query,
@@ -201,6 +206,7 @@ async function handle(req: Request): Promise<Response> {
         courseScope: body.course_id ?? undefined,
       })
       timing.stage3to7_retrieval = Date.now() - t3
+      resolvedConcepts = retrieval.resolvedConcepts
 
       const t8 = Date.now()
       const answer = await generateAnswer({
@@ -246,6 +252,17 @@ async function handle(req: Request): Promise<Response> {
       sourceCount: response.sources.length,
       timingMs: timing,
     }).catch(err => console.warn('[tutor-v4] persist failed:', err))
+
+    // Stage 9b: learner signal capture, also fire-and-forget. Shared with
+    // tutor-v4-stream so both endpoints write the same corpus.
+    void captureLearnerSignals({
+      userId: body.user_id,
+      sessionId: body.session_id ?? null,
+      turnId: null,
+      userQuestion: body.message,
+      assistantAnswer: response.answer,
+      concepts: resolvedConcepts,
+    }).catch(err => console.warn('[tutor-v4] signal capture failed:', err))
 
     return jsonResponse(response)
   } catch (err) {

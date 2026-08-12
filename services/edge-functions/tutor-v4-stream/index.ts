@@ -29,6 +29,7 @@ import {
   buildLearnerContext,
 } from '../_shared/tutor-persona.ts'
 import { createAdminClient } from '../_shared/supabase-admin.ts'
+import { captureLearnerSignals, type SignalConcept } from '../_shared/learner-signals.ts'
 
 interface TutorRequest {
   user_id: string
@@ -185,7 +186,7 @@ async function streamRetrievalAnswer(
 async function runPipeline(
   body: TutorRequest,
   send: (event: string, data: unknown) => void,
-): Promise<{ answer: string; model_used: string }> {
+): Promise<{ answer: string; model_used: string; concepts: SignalConcept[] }> {
   const sessionId = body.session_id ?? null
 
   // Stage 1: query rewriter, alongside the learner lookup. Concurrent because
@@ -232,9 +233,12 @@ async function runPipeline(
       })
       if (retrieval.clarifyingQuestion) {
         send('token', { delta: retrieval.clarifyingQuestion })
-        return { answer: retrieval.clarifyingQuestion, model_used: 'none' }
+        return { answer: retrieval.clarifyingQuestion, model_used: 'none', concepts: retrieval.resolvedConcepts }
       }
-      return await streamRetrievalAnswer('tutoring', rewritten.query, retrieval.sources, send, learnerContext)
+      return {
+        ...(await streamRetrievalAnswer('tutoring', rewritten.query, retrieval.sources, send, learnerContext)),
+        concepts: retrieval.resolvedConcepts,
+      }
     }
 
     // Non-empty shortcut → lookup answer (single-shot, non-streamed).
@@ -258,7 +262,7 @@ async function runPipeline(
       clarifyingQuestion: null,
     })
     send('token', { delta: answer.text })
-    return { answer: answer.text, model_used: answer.model_used }
+    return { answer: answer.text, model_used: answer.model_used, concepts: [] }
   }
 
   if (route.learning_mode === 'small_talk') {
@@ -276,7 +280,7 @@ async function runPipeline(
       clarifyingQuestion: null,
     })
     send('token', { delta: answer.text })
-    return { answer: answer.text, model_used: answer.model_used }
+    return { answer: answer.text, model_used: answer.model_used, concepts: [] }
   }
 
   // Full retrieval path (Stages 3-7 + streamed 8).
@@ -300,10 +304,13 @@ async function runPipeline(
 
   if (retrieval.clarifyingQuestion) {
     send('token', { delta: retrieval.clarifyingQuestion })
-    return { answer: retrieval.clarifyingQuestion, model_used: 'none' }
+    return { answer: retrieval.clarifyingQuestion, model_used: 'none', concepts: retrieval.resolvedConcepts }
   }
 
-  return await streamRetrievalAnswer(learningMode, rewritten.query, retrieval.sources, send, learnerContext)
+  return {
+    ...(await streamRetrievalAnswer(learningMode, rewritten.query, retrieval.sources, send, learnerContext)),
+    concepts: retrieval.resolvedConcepts,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -344,8 +351,21 @@ Deno.serve(async (req) => {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       }
       try {
-        const { answer, model_used } = await runPipeline(body, send)
+        const { answer, model_used, concepts } = await runPipeline(body, send)
         send('done', { answer, model_used })
+
+        // Stage 9b — after `done`, never before. Deliberately not awaited: the
+        // classifier is a second model call, and a learner signal is worth
+        // strictly less than getting the answer to the student. captureLearnerSignals
+        // swallows its own errors, so the catch here is belt-and-braces.
+        void captureLearnerSignals({
+          userId: body.user_id,
+          sessionId: body.session_id ?? null,
+          turnId: null,
+          userQuestion: body.message,
+          assistantAnswer: answer,
+          concepts,
+        }).catch(err => console.warn('[tutor-v4-stream] signal capture failed:', err))
       } catch (err) {
         console.error('[tutor-v4-stream] fatal:', err)
         send('error', { error: errMsg(err) })
