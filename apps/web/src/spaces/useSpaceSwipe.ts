@@ -46,6 +46,12 @@ const REST_VEL = 0.02
 const GESTURE_END_MS = 90
 /** How far ahead velocity is projected when deciding where a release lands. */
 const PROJECTION_S = 0.1
+/**
+ * Minimum gap between two commits inside one continuous swipe. Keeps a hard
+ * flick's momentum tail from running through several spaces, while still
+ * allowing ~8/second when the fingers really are still moving.
+ */
+const MIN_COMMIT_GAP_MS = 110
 /** Frame clamp, so a backgrounded tab can't integrate one enormous step. */
 const MAX_DT = 1 / 30
 
@@ -72,6 +78,7 @@ export function useSpaceSwipe({ count, index, onChange }: Options) {
     raf: 0,
     lastFrame: 0,
     lastEventTs: 0,
+    lastCommitTs: 0,
     endTimer: null as ReturnType<typeof setTimeout> | null,
   })
 
@@ -225,10 +232,18 @@ export function useSpaceSwipe({ count, index, onChange }: Options) {
       st.vel = st.vel * 0.7 + instant * 0.3
 
       // Recolour the app the moment the halfway line is crossed, rather than
-      // waiting for the fingers to lift — the content and the gesture stay in
-      // step. The clamp above caps this at one crossing per gesture.
+      // waiting for the fingers to lift — content and gesture stay in step.
       const crossed = clamp(Math.round(st.pos), 0, n - 1)
-      if (crossed !== live.current.index) change(crossed)
+      if (crossed !== live.current.index && e.timeStamp - st.lastCommitTs > MIN_COMMIT_GAP_MS) {
+        change(crossed)
+        st.lastCommitTs = e.timeStamp
+        // Re-anchor so one long swipe can keep travelling. Anchoring only at
+        // the start meant a continuous gesture was capped at a single space no
+        // matter how far you kept pushing — which is what made rapid swiping
+        // feel like it stopped responding. The time gate above is what keeps
+        // momentum from running away now that the clamp moves with you.
+        st.gestureStart = crossed
+      }
 
       ensureLoop()
     }

@@ -40,10 +40,16 @@ interface CourseRow {
 
 function shortLabel(code: string | null, name: string): string {
   if (code) {
-    // "W26-EDUC-475-01" → "EDUC 475"
-    const m = code.match(/([A-Za-z]{2,8})-?(\d{1,4}[A-Za-z]?)/)
-    if (m) return `${m[1].toUpperCase()} ${m[2]}`
-    return code
+    // Strip the term prefix FIRST. Without this the department matcher happily
+    // matches the term itself when it has two letters, so every Spring course
+    // came out as "SP 26" — "Sp26-CS-146J-01" matched Sp + 26. Single-letter
+    // terms (W26, F25) slipped through because the matcher wants 2+ letters,
+    // which is why this only showed up once Spring courses were selected.
+    const withoutTerm = code.replace(/^(F|W|Sp|Su)\d{2}[-\s]*/i, '')
+    // "EDUC-475-01" → "EDUC 475"; "CS-146J-01" → "CS 146J"; "PWR-2PT-01" → "PWR 2PT"
+    const m = withoutTerm.match(/([A-Za-z]{2,8})[-\s]?(\d{1,4}[A-Za-z]*)/)
+    if (m) return `${m[1].toUpperCase()} ${m[2].toUpperCase()}`
+    return withoutTerm || code
   }
   return name.length > 28 ? `${name.slice(0, 28).trimEnd()}…` : name
 }

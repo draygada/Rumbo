@@ -31,10 +31,17 @@ export function useMotionTrack(kind: MotionTrack) {
   )
 }
 
-/** How far the content slides, in px, for a full one-space move. */
-const CONTENT_PARALLAX_PX = 34
-/** How much the content dims at the midpoint of a move. */
-const CONTENT_FADE = 0.4
+/**
+ * How far the content slides for a full one-space move, as a share of the
+ * viewport width. A fixed ~34px read as a twitch on a wide window — the move
+ * has to be proportional to the screen to look like the page is travelling
+ * rather than nudging.
+ */
+const CONTENT_PARALLAX_RATIO = 0.16
+const CONTENT_PARALLAX_MAX_PX = 220
+/** How much the content dims and shrinks at the midpoint of a move. */
+const CONTENT_FADE = 0.55
+const CONTENT_SCALE = 0.04
 
 /**
  * Paint one frame.
@@ -52,11 +59,16 @@ export function paintTracks(pos: number, index: number): void {
 
   const content = elements.content
   if (content) {
-    // Content trails the rail at a fraction of the distance and dims through
-    // the crossing, so the whole app reads as moving rather than the label
-    // alone. Clamped so a rubber-band at either end can't fade it out.
+    // Content travels with the gesture, dimming and easing back slightly as it
+    // goes, so the whole app reads as moving between spaces rather than a label
+    // sliding in the sidebar. Clamped so a rubber-band at either end can't fade
+    // the page out.
     const delta = Math.max(-1, Math.min(1, pos - index))
-    content.style.transform = `translateX(${(-delta * CONTENT_PARALLAX_PX).toFixed(2)}px)`
-    content.style.opacity = (1 - Math.abs(delta) * CONTENT_FADE).toFixed(3)
+    const magnitude = Math.abs(delta)
+    const travel = Math.min(CONTENT_PARALLAX_MAX_PX, window.innerWidth * CONTENT_PARALLAX_RATIO)
+    const scale = 1 - magnitude * CONTENT_SCALE
+    content.style.transform =
+      `translateX(${(-delta * travel).toFixed(2)}px) scale(${scale.toFixed(4)})`
+    content.style.opacity = (1 - magnitude * CONTENT_FADE).toFixed(3)
   }
 }
