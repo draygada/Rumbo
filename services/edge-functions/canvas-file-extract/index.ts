@@ -32,6 +32,16 @@ const SUPPORTED_MIMES = new Set([
 interface Body {
   user_id?: string
   limit?: number
+  /**
+   * Restrict extraction to one course, e.g. 'canvas_course_221697'.
+   *
+   * Default order is oldest-ingested-first across every course, which is right
+   * for steady-state draining but wrong when you need a specific course usable
+   * now — you end up paying LlamaParse for every unrelated file that happens to
+   * be older. Added when a backlog of 128 files needed exactly 14 of them
+   * extracted before a demo.
+   */
+  course_id?: string
 }
 
 function authorized(req: Request): boolean {
@@ -89,6 +99,7 @@ Deno.serve(async (req) => {
     .order('ingested_at', { ascending: true })
     .limit(limit)
   if (body.user_id) query = query.eq('user_id', body.user_id)
+  if (body.course_id) query = query.eq('course_id', body.course_id)
   const { data: candidates, error } = await query
   if (error) return jsonResponse({ error: `read failed: ${error.message}` }, 500)
 
