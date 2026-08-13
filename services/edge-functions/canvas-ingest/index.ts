@@ -57,6 +57,8 @@ interface UserSyncResult {
   homes_seen: number
   rubrics_seen: number
   rows_upserted: number
+  /** Rows whose already-extracted document text this sync declined to overwrite. */
+  extracted_preserved: number
   error?: string
 }
 
@@ -78,7 +80,7 @@ async function markTokenExpired(admin: ReturnType<typeof createAdminClient>, use
 }
 
 async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: string, creds: CanvasCredentials): Promise<UserSyncResult> {
-  const result: UserSyncResult = { user_id: userId, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, pages_seen: 0, announcements_seen: 0, homes_seen: 0, rubrics_seen: 0, rows_upserted: 0 }
+  const result: UserSyncResult = { user_id: userId, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, pages_seen: 0, announcements_seen: 0, homes_seen: 0, rubrics_seen: 0, rows_upserted: 0, extracted_preserved: 0 }
 
   let courses
   try {
@@ -231,10 +233,14 @@ async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: str
     }
   }
 
-  // Upsert in chunks so large payloads don't hit Postgres limits.
+  // Upsert in chunks so large payloads don't hit Postgres limits. Each chunk
+  // goes through preserveExtractedContent first — see the note on that
+  // function; without it this sync silently destroys every parsed document.
   const CHUNK = 200
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK)
+    const { rows: chunk, preserved } = await preserveExtractedContent(
+      admin, userId, rows.slice(i, i + CHUNK),
+    )
     const { error } = await admin
       .from('normalized_events')
       .upsert(chunk, { onConflict: 'user_id,source_type,external_id' })
@@ -243,6 +249,7 @@ async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: str
       return result
     }
     result.rows_upserted += chunk.length
+    result.extracted_preserved += preserved
   }
 
   await admin
@@ -251,6 +258,120 @@ async function syncUser(admin: ReturnType<typeof createAdminClient>, userId: str
     .eq('user_id', userId)
 
   return result
+}
+
+// ---------------------------------------------------------------------------
+// Protect extracted document text from the sync that would otherwise erase it.
+//
+// THE BUG THIS FIXES. The upsert below is a full-row write keyed on
+// (user_id, source_type, external_id), and every row it builds carries a fresh
+// `normalized_text` and a fresh `raw_payload`. For a file that text is just the
+// display name (normalizeCanvasFile) and that payload is the raw Canvas object
+// with no `rumbo_*` keys in it.
+//
+// LlamaParse extraction writes the parsed document INTO those same two columns.
+// So every 6-hourly sync overwrote ~21,000 characters of parsed lecture with a
+// filename, and wiped the extraction markers on the way out — which made the
+// record look un-extracted, so nothing ever noticed. Measured on 2026-08-13:
+// 123 of 123 successfully-parsed documents had been reduced to 10-39 characters,
+// while the job rows still recorded chars_written averaging 21,226.
+//
+// Gating on `rumbo_content_extracted_at` is what keeps this narrow. Only rows
+// something actually extracted are protected; Canvas stays authoritative for
+// pages, assignments and announcements, whose bodies legitimately change
+// upstream and must keep flowing through.
+//
+// Tradeoff, deliberate: once a file is extracted its text is pinned, so
+// replacing a PDF in Canvas under the same file id will not re-extract. That
+// was already true — canvas-file-extract skips any row carrying this same
+// marker — so this preserves existing behaviour rather than adding a new
+// limitation. Re-extraction on change needs a content hash, which is the
+// separate-column redesign, not this fix.
+// ---------------------------------------------------------------------------
+
+/** Keys the extraction pipeline owns. Ingest must carry these forward, never author them. */
+const EXTRACTION_KEYS = [
+  'rumbo_content_extracted_at',
+  'rumbo_content_chars',
+  'rumbo_content_extractor',
+  'rumbo_content_error',
+  'rumbo_llamaparse_enqueued_at',
+  'rumbo_llamaparse_job_id',
+] as const
+
+interface PriorRow {
+  source_type: string
+  external_id: string
+  normalized_text: string | null
+  raw_payload: Record<string, unknown> | null
+}
+
+async function preserveExtractedContent(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  chunk: NormalizedRow[],
+): Promise<{ rows: NormalizedRow[]; preserved: number }> {
+  if (chunk.length === 0) return { rows: chunk, preserved: 0 }
+
+  const key = (sourceType: string, externalId: string) => `${sourceType} ${externalId}`
+
+  const prior: PriorRow[] = []
+  try {
+    // Sub-batched because `.in()` goes on the query string: 200 external ids
+    // is several KB of URL, close enough to proxy limits that a failure here
+    // would trip the fail-closed path below and stall ingest entirely.
+    const LOOKUP = 50
+    const ids = chunk.map(r => r.external_id)
+    for (let i = 0; i < ids.length; i += LOOKUP) {
+      const { data, error } = await admin
+        .from('normalized_events')
+        .select('source_type, external_id, normalized_text, raw_payload')
+        .eq('user_id', userId)
+        .in('external_id', ids.slice(i, i + LOOKUP))
+      if (error) throw new Error(error.message)
+      prior.push(...((data ?? []) as PriorRow[]))
+    }
+  } catch (err) {
+    // Fail CLOSED. If we can't tell which rows hold extracted text, upserting
+    // anyway is exactly the data loss this exists to prevent — so skip the
+    // whole chunk and let the next sync retry. A stale row beats a destroyed one.
+    console.error(
+      `[canvas-ingest] preserve lookup failed for ${userId}; skipping chunk to avoid ` +
+      `overwriting extracted text:`, err instanceof Error ? err.message : err,
+    )
+    return { rows: [], preserved: 0 }
+  }
+
+  const byKey = new Map<string, PriorRow>()
+  for (const row of prior) byKey.set(key(row.source_type, row.external_id), row)
+
+  let preserved = 0
+  const rows = chunk.map(row => {
+    const existing = byKey.get(key(row.source_type, row.external_id))
+    const payload = (existing?.raw_payload ?? {}) as Record<string, unknown>
+    // Also protect rows that are mid-extraction. Wiping an enqueue marker makes
+    // canvas-file-extract treat an in-flight file as untouched and submit it to
+    // LlamaParse a second time — billed twice, and the later job's write races
+    // the earlier one.
+    const extracted = payload.rumbo_content_extracted_at
+    const inFlight = payload.rumbo_llamaparse_enqueued_at
+    if (!extracted && !inFlight) return row
+
+    // Carry the extraction markers onto the FRESH Canvas payload, so updated
+    // Canvas metadata still lands while the extraction record survives.
+    const carried: Record<string, unknown> = {}
+    for (const k of EXTRACTION_KEYS) {
+      if (k in payload) carried[k] = payload[k]
+    }
+    preserved += 1
+    return {
+      ...row,
+      normalized_text: existing?.normalized_text ?? row.normalized_text,
+      raw_payload: { ...(row.raw_payload as Record<string, unknown>), ...carried },
+    }
+  })
+
+  return { rows, preserved }
 }
 
 Deno.serve(async (req) => {
@@ -296,7 +417,7 @@ Deno.serve(async (req) => {
       .eq('user_id', row.user_id)
       .maybeSingle()
     if (state?.token_status === 'expired') {
-      results.push({ user_id: row.user_id, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, pages_seen: 0, announcements_seen: 0, homes_seen: 0, rubrics_seen: 0, rows_upserted: 0, error: 'token_expired' })
+      results.push({ user_id: row.user_id, courses_seen: 0, assignments_seen: 0, files_seen: 0, lectures_seen: 0, pages_seen: 0, announcements_seen: 0, homes_seen: 0, rubrics_seen: 0, rows_upserted: 0, extracted_preserved: 0, error: 'token_expired' })
       continue
     }
 
